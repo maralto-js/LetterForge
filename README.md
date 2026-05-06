@@ -36,3 +36,5 @@ O sistema de comunicação que faltava em Minecraft. Cartas que conectam players
 4. Edite `plugins/NemonicMail/config.yml`
 
 ---
+## 📄 Licença
+Este plugin é um software proprietário. É proibida a redistribuição, cópia, modificação ou uso sem autorização explícita do autor. A licença é concedida individualmente por servidor.
