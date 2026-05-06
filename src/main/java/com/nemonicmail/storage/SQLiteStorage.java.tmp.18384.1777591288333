@@ -1,0 +1,277 @@
+package com.nemonicmail.storage;
+
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
+import com.nemonicmail.image.MapImageEntry;
+import com.nemonicmail.model.Letter;
+import com.nemonicmail.model.LetterPriority;
+import com.nemonicmail.model.LetterType;
+
+import java.io.File;
+import java.lang.reflect.Type;
+import java.sql.*;
+import java.util.*;
+import java.util.logging.Logger;
+
+public class SQLiteStorage implements StorageProvider {
+
+    private static final Type LIST_STRING_TYPE = new TypeToken<List<String>>() {}.getType();
+
+    private final File dataFolder;
+    private final Logger logger;
+    private final Gson gson = new Gson();
+    private Connection connection;
+
+    public SQLiteStorage(File dataFolder, Logger logger) {
+        this.dataFolder = dataFolder;
+        this.logger = logger;
+    }
+
+    @Override
+    public synchronized void init() throws Exception {
+        Class.forName("com.nemonicmail.libs.sqlite.JDBC");
+
+        File dbFile = new File(dataFolder, "letters.db");
+        connection = DriverManager.getConnection("jdbc:sqlite:" + dbFile.getAbsolutePath());
+
+        try (Statement s = connection.createStatement()) {
+            s.execute("PRAGMA journal_mode=WAL");
+            s.execute("PRAGMA synchronous=NORMAL");
+            s.execute("PRAGMA cache_size=10000");
+            s.execute("PRAGMA foreign_keys=ON");
+        }
+
+        createTables();
+        logger.info("[NemonicMail] Banco de dados inicializado.");
+    }
+
+    private void createTables() throws SQLException {
+        try (Statement s = connection.createStatement()) {
+            s.execute("""
+                    CREATE TABLE IF NOT EXISTS letters (
+                        id             TEXT PRIMARY KEY,
+                        sender_uuid    TEXT NOT NULL,
+                        sender_name    TEXT NOT NULL,
+                        recipient_uuid TEXT,
+                        recipient_name TEXT NOT NULL,
+                        pages          TEXT NOT NULL,
+                        sent_at        INTEGER NOT NULL,
+                        deliver_at     INTEGER NOT NULL,
+                        read           INTEGER NOT NULL DEFAULT 0,
+                        delivered      INTEGER NOT NULL DEFAULT 0,
+                        type           TEXT NOT NULL DEFAULT 'DIRECT',
+                        priority       TEXT NOT NULL DEFAULT 'NORMAL',
+                        expires_at     INTEGER NOT NULL DEFAULT 0
+                    )""");
+
+            s.execute("""
+                    CREATE TABLE IF NOT EXISTS broadcast_seen (
+                        letter_id   TEXT NOT NULL,
+                        player_uuid TEXT NOT NULL,
+                        PRIMARY KEY (letter_id, player_uuid)
+                    )""");
+
+            // Migration: must run before indexes that reference expires_at
+            try {
+                s.execute("ALTER TABLE letters ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0");
+            } catch (SQLException ignored) {} // column already exists — safe to ignore
+
+            s.execute("CREATE INDEX IF NOT EXISTS idx_recipient ON letters(recipient_uuid, delivered, deliver_at)");
+            s.execute("CREATE INDEX IF NOT EXISTS idx_type_delivered ON letters(type, delivered)");
+            s.execute("CREATE INDEX IF NOT EXISTS idx_cleanup ON letters(type, read, sent_at)");
+            s.execute("CREATE INDEX IF NOT EXISTS idx_bc_seen ON broadcast_seen(player_uuid)");
+            s.execute("CREATE INDEX IF NOT EXISTS idx_expires ON letters(expires_at)");
+        }
+    }
+
+    @Override
+    public synchronized void insertLetter(Letter letter) {
+        String sql = """
+                INSERT INTO letters(id, sender_uuid, sender_name, recipient_uuid, recipient_name,
+                                    pages, sent_at, deliver_at, read, delivered, type, priority, expires_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""";
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, letter.id().toString());
+            ps.setString(2, letter.senderUUID().toString());
+            ps.setString(3, letter.senderName());
+            ps.setString(4, letter.recipientUUID() != null ? letter.recipientUUID().toString() : null);
+            ps.setString(5, letter.recipientName());
+            ps.setString(6, gson.toJson(letter.pages()));
+            ps.setLong(7, letter.sentAt());
+            ps.setLong(8, letter.deliverAt());
+            ps.setInt(9, letter.read() ? 1 : 0);
+            ps.setInt(10, letter.delivered() ? 1 : 0);
+            ps.setString(11, letter.type().name());
+            ps.setString(12, letter.priority().name());
+            ps.setLong(13, letter.expiresAt());
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            logger.severe("[NemonicMail] Erro ao inserir carta: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public synchronized List<Letter> getInbox(UUID playerUUID) {
+        long now = System.currentTimeMillis();
+        String sql = """
+                SELECT * FROM letters
+                WHERE recipient_uuid = ?
+                  AND (expires_at = 0 OR expires_at > ?)
+                ORDER BY sent_at DESC LIMIT 50""";
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, playerUUID.toString());
+            ps.setLong(2, now);
+            return mapAll(ps.executeQuery());
+        } catch (SQLException e) {
+            logger.severe("[NemonicMail] Erro ao carregar inbox: " + e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    @Override
+    public synchronized List<Letter> getPendingDirectLetters(UUID playerUUID, long currentTime) {
+        String sql = """
+                SELECT * FROM letters
+                WHERE recipient_uuid = ?
+                  AND delivered = 0
+                  AND deliver_at <= ?
+                  AND type != 'BROADCAST'""";
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, playerUUID.toString());
+            ps.setLong(2, currentTime);
+            return mapAll(ps.executeQuery());
+        } catch (SQLException e) {
+            logger.severe("[NemonicMail] Erro ao buscar pendentes: " + e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    @Override
+    public synchronized List<Letter> getPendingBroadcasts(UUID playerUUID) {
+        long now = System.currentTimeMillis();
+        String sql = """
+                SELECT * FROM letters
+                WHERE type = 'BROADCAST'
+                  AND (expires_at = 0 OR expires_at > ?)
+                  AND id NOT IN (
+                      SELECT letter_id FROM broadcast_seen WHERE player_uuid = ?
+                  )
+                ORDER BY sent_at DESC""";
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setLong(1, now);
+            ps.setString(2, playerUUID.toString());
+            return mapAll(ps.executeQuery());
+        } catch (SQLException e) {
+            logger.severe("[NemonicMail] Erro ao buscar broadcasts: " + e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    @Override
+    public synchronized void markDelivered(UUID letterId) {
+        execute("UPDATE letters SET delivered = 1 WHERE id = ?", letterId.toString());
+    }
+
+    @Override
+    public synchronized void markRead(UUID letterId) {
+        execute("UPDATE letters SET read = 1 WHERE id = ?", letterId.toString());
+    }
+
+    @Override
+    public synchronized void markBroadcastSeen(UUID letterId, UUID playerUUID) {
+        String sql = "INSERT OR IGNORE INTO broadcast_seen(letter_id, player_uuid) VALUES (?,?)";
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, letterId.toString());
+            ps.setString(2, playerUUID.toString());
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            logger.severe("[NemonicMail] Erro ao marcar broadcast visto: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public synchronized int countUnread(UUID playerUUID) {
+        String sql = "SELECT COUNT(*) FROM letters WHERE recipient_uuid = ? AND read = 0 AND type != 'BROADCAST'";
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, playerUUID.toString());
+            ResultSet rs = ps.executeQuery();
+            return rs.next() ? rs.getInt(1) : 0;
+        } catch (SQLException e) {
+            return 0;
+        }
+    }
+
+    @Override
+    public synchronized int countUnreadBroadcasts(UUID playerUUID) {
+        String sql = """
+                SELECT COUNT(*) FROM letters
+                WHERE type = 'BROADCAST'
+                  AND id NOT IN (SELECT letter_id FROM broadcast_seen WHERE player_uuid = ?)""";
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, playerUUID.toString());
+            ResultSet rs = ps.executeQuery();
+            return rs.next() ? rs.getInt(1) : 0;
+        } catch (SQLException e) {
+            return 0;
+        }
+    }
+
+    @Override
+    public synchronized void cleanup(long directOlderThan, long broadcastOlderThan) {
+        long now = System.currentTimeMillis();
+        try (Statement s = connection.createStatement()) {
+            s.execute("DELETE FROM letters WHERE expires_at > 0 AND expires_at < " + now);
+            s.execute("DELETE FROM letters WHERE type != 'BROADCAST' AND read = 1 AND sent_at < " + directOlderThan);
+            s.execute("DELETE FROM letters WHERE type = 'BROADCAST' AND sent_at < " + broadcastOlderThan);
+            s.execute("DELETE FROM broadcast_seen WHERE letter_id NOT IN (SELECT id FROM letters)");
+        } catch (SQLException e) {
+            logger.warning("[NemonicMail] Erro durante cleanup: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public synchronized void close() {
+        try {
+            if (connection != null && !connection.isClosed()) {
+                connection.close();
+            }
+        } catch (SQLException ignored) {}
+    }
+
+    // --- Helpers ---
+
+    private void execute(String sql, String param) {
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, param);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            logger.severe("[NemonicMail] Erro SQL: " + e.getMessage());
+        }
+    }
+
+    private List<Letter> mapAll(ResultSet rs) throws SQLException {
+        List<Letter> list = new ArrayList<>();
+        while (rs.next()) list.add(mapRow(rs));
+        return list;
+    }
+
+    private Letter mapRow(ResultSet rs) throws SQLException {
+        String recipStr = rs.getString("recipient_uuid");
+        List<String> pages = gson.fromJson(rs.getString("pages"), LIST_STRING_TYPE);
+        return new Letter(
+                UUID.fromString(rs.getString("id")),
+                UUID.fromString(rs.getString("sender_uuid")),
+                rs.getString("sender_name"),
+                recipStr != null ? UUID.fromString(recipStr) : null,
+                rs.getString("recipient_name"),
+                pages,
+                rs.getLong("sent_at"),
+                rs.getLong("deliver_at"),
+                rs.getInt("read") == 1,
+                rs.getInt("delivered") == 1,
+                LetterType.valueOf(rs.getString("type")),
+                LetterPriority.valueOf(rs.getString("priority")),
+                rs.getLong("expires_at")
+        );
+    }
+}

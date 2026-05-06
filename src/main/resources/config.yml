@@ -1,0 +1,103 @@
+# NemonicMail - Configuracao
+
+limits:
+  # Maximo de cartas na caixa de cada jogador
+  max-inbox: 50
+  # Maximo de paginas por carta
+  max-pages: 6
+  # Maximo de caracteres por pagina
+  max-chars-per-page: 256
+  # Maximo de cartas enviadas por minuto
+  max-per-minute: 5
+
+cooldowns:
+  # Cooldown padrao em segundos (substituido por meta do LuckPerms se configurado)
+  default-seconds: 30
+  # Cooldown para cartas anonimas
+  anonymous-seconds: 120
+  # Cooldown para broadcast em minutos
+  broadcast-minutes: 30
+
+# Cooldowns independentes para o sistema de imagens
+image-cooldowns:
+  # Cooldown entre requisicoes de URL (segundos)
+  url-seconds: 30
+  # Cooldown entre uploads (segundos) — maior para reduzir abuso
+  upload-seconds: 60
+
+delivery:
+  # Delay para cartas normais em segundos (0 = instantaneo)
+  direct-delay-seconds: 0
+  # Delay para cartas anonimas em segundos (imersao)
+  anonymous-delay-seconds: 30
+  # Com que frequencia (em segundos) o scheduler verifica cartas com delay prontas para entrega
+  check-interval-seconds: 15
+
+cleanup:
+  # Deletar cartas lidas apos X dias
+  delete-read-after-days: 30
+  # Deletar broadcasts apos X dias
+  delete-broadcast-after-days: 7
+  # Intervalo de limpeza em horas
+  run-every-hours: 24
+
+messages:
+  prefix: '&8[&6✉ Correio&8] &r'
+  no-permission: '&cVoce nao tem permissao para isso.'
+  player-not-found: '&cJogador "{player}" nao encontrado.'
+  letter-sent: '&aCartа enviada para &e{player}&a!'
+  broadcast-sent: '&aAnuncio enviado para todos os jogadores!'
+  cooldown: '&cAguarde &e{seconds}s &cantes de enviar outra carta.'
+  rate-limited: '&cVoce enviou cartas rapido demais. Aguarde um momento.'
+  inbox-empty: '&7Sua caixa postal esta vazia.'
+  write-instructions: '&eEscreva sua carta no livro e &6assine-o &epara enviar.'
+
+# -----------------------------------------------------------------------
+# Seguranca
+# -----------------------------------------------------------------------
+security:
+  # Dimensao maxima de imagem antes do decode completo (protecao contra PNG bomb)
+  # Imagens com width ou height acima deste valor sao rejeitadas imediatamente
+  max-image-dimension: 8192
+
+# -----------------------------------------------------------------------
+# Filtro de conteudo (+18)
+# -----------------------------------------------------------------------
+content-filter:
+  # Ativar deteccao de tons de pele (HSV) nas imagens
+  enabled: false
+  # Fracao de pixels com tom de pele para bloquear a imagem (0.0 - 1.0)
+  # 0.35 = 35% dos pixels opacos com tom de pele -> bloqueado
+  skin-threshold: 0.35
+
+# -----------------------------------------------------------------------
+# Sistema de imagens em mapas
+# -----------------------------------------------------------------------
+image-rendering:
+  # Desativar esta opcao desabilita todo o sistema de imagens
+  enabled: true
+  # Floyd-Steinberg dithering melhora a qualidade visual (recomendado true)
+  dithering: true
+  # Grid padrao ao usar /carta imagem url sem especificar tamanho
+  default-grid: "1x1"
+  # Tamanho maximo do grid (cada unidade = 1 mapa de 128x128)
+  max-grid-w: 2
+  max-grid-h: 2
+
+image-upload:
+  # Servidor HTTP embutido para upload direto pelo navegador
+  enabled: true
+  # Porta do servidor de upload (deve estar aberta no firewall)
+  port: 8517
+  # Endereco de bind — use "127.0.0.1" ao usar Nginx como proxy reverso
+  # Use "0.0.0.0" para acesso direto (porta deve estar aberta no firewall)
+  bind-address: "0.0.0.0"
+  # IP publico ou hostname do servidor — jogadores usarao este endereco no link
+  # IMPORTANTE: altere para o IP publico real do seu servidor
+  server-ip: "SEU-IP-AQUI"
+  # Tamanho maximo do arquivo de upload em MB
+  max-file-size-mb: 5
+  # Tempo de validade do token de upload em segundos (padrao: 5 minutos)
+  token-ttl-seconds: 300
+  # Numero maximo de uploads sendo processados simultaneamente (rejeita com 503 se exceder)
+  max-concurrent: 3

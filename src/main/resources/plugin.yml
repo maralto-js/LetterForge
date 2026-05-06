@@ -1,0 +1,55 @@
+name: NemonicMail
+version: '1.1.0'
+main: com.nemonicmail.NemonicMail
+api-version: '1.21'
+authors: [ NemonicRP ]
+description: Sistema de cartas imersivo para RP
+
+softdepend: [ LuckPerms, PlaceholderAPI ]
+
+commands:
+  carta:
+    description: Sistema de cartas NemonicMail
+    usage: /carta [escrever|caixa|todos|imagem|reload|ajuda]
+    aliases: [ mail, correio ]
+
+permissions:
+  nemonicmail.use:
+    description: Escrever e receber cartas
+    default: true
+
+  nemonicmail.broadcast:
+    description: Enviar carta para todos os jogadores
+    default: false
+
+  nemonicmail.priority.high:
+    description: Enviar cartas marcadas como IMPORTANTE ou OFICIAL
+    default: false
+
+  nemonicmail.bypass.cooldown:
+    description: Ignorar cooldown de envio
+    default: false
+
+  nemonicmail.image.url:
+    description: Anexar imagens via URL HTTPS na carta
+    default: false
+
+  nemonicmail.image.upload:
+    description: Fazer upload de imagem pelo navegador para anexar na carta
+    default: false
+
+  nemonicmail.admin:
+    description: Acesso total ao sistema de cartas
+    default: op
+    children:
+      nemonicmail.use: true
+      nemonicmail.broadcast: true
+      nemonicmail.priority.high: true
+      nemonicmail.bypass.cooldown: true
+      nemonicmail.image.url: true
+      nemonicmail.image.upload: true
+      nemonicmail.reload: true
+
+  nemonicmail.reload:
+    description: Recarregar configuracoes e mensagens do plugin
+    default: op

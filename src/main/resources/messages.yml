@@ -1,0 +1,113 @@
+# =========================================================
+#  NemonicMail — messages.yml
+#  Suporta codigos de cor legado (&) e placeholders {variavel}
+#  Recarregue com: /carta reload
+# =========================================================
+
+prefix: '&8[&6✉ Correio&8] &r'
+
+# --- Tags de tipo ---
+tags:
+  urgent:    '&c[URGENTE] '
+  official:  '&6[OFICIAL] '
+  broadcast: '&e[AVISO] '
+  anonymous: '&7[ANONIMO] '
+
+# --- Geral ---
+general:
+  no-permission:    '&cVoce nao tem permissao para isso.'
+  only-players:     '&cApenas jogadores podem usar este comando.'
+  player-searching: '&7Buscando jogador...'
+  player-not-found: '&cJogador &e{player} &cnao encontrado.'
+  reload-success:   '&aConfiguracoes e mensagens recarregadas com sucesso.'
+  reload-no-perm:   '&cVoce nao tem permissao para recarregar o plugin.'
+
+# --- /carta escrever ---
+write:
+  usage:            '&eUso: /carta escrever <jogador> [anon|urgente|oficial]'
+  already-has-book: '&eVoce ja tem uma carta em maos! Assine-a ou descarte-a primeiro.'
+  no-perm-type:     '&cVoce nao tem permissao para enviar cartas urgentes/oficiais.'
+  book-ready:       '&aCarta preparada para &e{player}&a! Escreva e assine o livro para enviar.'
+  book-ready-img:   '&aCarta preparada para &e{player}&a! Escreva e assine. &6[imagem anexada]'
+
+# --- /carta caixa ---
+inbox:
+  empty: '&7Sua caixa postal esta vazia.'
+
+# --- /carta todos ---
+broadcast:
+  no-permission:    '&cVoce nao tem permissao para enviar anuncios.'
+  no-perm-type:     '&cVoce nao tem permissao para broadcasts urgentes/oficiais.'
+  already-has-book: '&eVoce ja tem uma carta em maos!'
+  book-ready:       '&eLivro de anuncio preparado! Escreva e assine para enviar a todos.'
+  sent:             '&aAnuncio enviado para todos os jogadores!'
+
+# --- /carta imagem ---
+image:
+  disabled:          '&cSistema de imagens esta desativado.'
+  upload-disabled:   '&cUpload direto desativado. Configure image-upload.enabled: true.'
+  no-perm-url:       '&cVoce nao tem permissao para anexar imagens via URL.'
+  no-perm-upload:    '&cVoce nao tem permissao para fazer upload de imagens.'
+  processing:        '&7Processando imagem... aguarde.'
+  ready:             '&aImagem pronta! Escreva uma carta para inclui-la automaticamente.'
+  error:             '&cFalha ao processar imagem: &e{error}'
+  upload-link-title: '&7Acesse o link abaixo para enviar sua imagem (valido por 5 min):'
+  confirmed:         '&aImagem confirmada! Escreva sua proxima carta para inclui-la.'
+  token-invalid:     '&cToken invalido, expirado ou imagem ainda nao processada.'
+  cancelled:         '&7Imagem pendente removida.'
+  status-has:        '&aVoce tem uma imagem pendente pronta para ser anexada na proxima carta.'
+  status-none:       '&7Nenhuma imagem pendente.'
+  attached:          '&6Mapa ilustrado anexado a carta!'
+  url-usage:         '&eUso: /carta imagem url <url> [1x1|2x1|2x2]'
+  confirm-usage:     '&eUso: /carta imagem confirmar <token>'
+
+# --- Cooldown / Rate limit ---
+cooldown:
+  letter:       '&cAguarde &e{seconds}s &cantes de enviar outra carta.'
+  broadcast:    '&cAguarde &e{seconds}s &cantes de enviar outro anuncio.'
+  rate-limited: '&cVoce enviou cartas rapido demais. Aguarde um momento.'
+  image-url:    '&cAguarde &e{seconds}s &cantes de solicitar outra imagem por URL.'
+  image-upload: '&cAguarde &e{seconds}s &cantes de fazer outro upload de imagem.'
+
+# --- Validacao de carta ---
+letter:
+  sent:           '&aCarta enviada para &e{player}&a!'
+  empty:          '&cEscreva algo antes de enviar!'
+  too-many-pages: '&cMaximo de &e{max} &cpaginas por carta.'
+  page-too-long:  '&cUma pagina excede o limite de &e{max} &ccaracteres.'
+
+# --- Notificacoes ao destinatario ---
+notify:
+  join-title-urgent: '&c&l✉ Mensagem Importante'
+  join-subtitle:     '&eVoce tem {count} carta(s) nao lida(s)!'
+  join-actionbar:    '&6✉ {count} carta(s) nao lida(s) — /carta caixa'
+  join-chat:         '&7Voce tem &e{count} carta(s) nao lida(s)&7!'
+  new-actionbar:     '{tag}Nova carta de {sender} — /carta caixa'
+  new-chat:          '&7Nova carta de &e{sender}&7!'
+
+# --- GUI ---
+gui:
+  letter-opened: '&7Carta de &e{sender} &7aberta. Use &b/carta caixa &7para voltar.'
+  map-single:    '&7Um mapa ilustrado foi adicionado ao seu inventario.'
+  map-multi:     '&7{count} mapas ilustrados foram adicionados.'
+  map-dropped:   ' &c(Inventario cheio — item(ns) dropado(s) perto de voce!)'
+
+# --- Upload HTTP ---
+upload:
+  received: '&aImagem recebida! Use /carta imagem confirmar {token}'
+
+# --- Filtro de conteudo ---
+filter:
+  upload-flagged: '&cSua imagem foi retida para revisao. Um administrador sera notificado.'
+
+# --- Comandos admin ---
+admin:
+  debug-usage:      '&eUso: /carta admin debug on|off'
+  debug-on:         '&aDebug ativado. Logs extras aparecerão no console.'
+  debug-off:        '&7Debug desativado.'
+  ver-usage:        '&eUso: /carta admin ver <jogador>'
+  revogar-usage:    '&eUso: /carta admin revogar <id>'
+  quem-usage:       '&eUso: /carta admin quem <id>'
+  invalid-id:       '&cID de carta invalido. Formato esperado: UUID (ex: a1b2c3d4-...)'
+  revoked:          '&aCarta &e{id} &arevogada com sucesso.'
+  letter-not-found: '&cCarta nao encontrada. Pode ja ter sido deletada.'
