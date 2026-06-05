@@ -29,10 +29,12 @@ public class MailPlaceholder extends PlaceholderExpansion {
     @Override
     public @Nullable String onPlaceholderRequest(Player player, @NotNull String params) {
         if (player == null) return "0";
+        // getUnreadCountFast() nunca consulta o banco na main thread (PlaceholderAPI
+        // resolve placeholders no thread do servidor em scoreboard/chat/actionbar).
         return switch (params) {
-            case "unread"       -> String.valueOf(letterManager.getUnreadCount(player.getUniqueId()));
+            case "unread"       -> String.valueOf(letterManager.getUnreadCountFast(player.getUniqueId()));
             case "unread_color" -> {
-                int count = letterManager.getUnreadCount(player.getUniqueId());
+                int count = letterManager.getUnreadCountFast(player.getUniqueId());
                 yield count > 0 ? "§e" + count : "§70";
             }
             default -> null;

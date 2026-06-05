@@ -52,7 +52,11 @@ public class SpamGuard {
             rateWindowStart.put(uuid, now);
             rateCounter.put(uuid, new AtomicInteger(0));
         }
-        if (rateCounter.computeIfAbsent(uuid, k -> new AtomicInteger(0)).get() >= maxPerMin) {
+
+        AtomicInteger counter = rateCounter.computeIfAbsent(uuid, k -> new AtomicInteger(0));
+        int currentCount = counter.getAndIncrement();
+        if (currentCount >= maxPerMin) {
+            counter.decrementAndGet();
             return new CheckResult.RateLimited();
         }
         return new CheckResult.Allowed();
@@ -60,7 +64,6 @@ public class SpamGuard {
 
     public void recordSend(UUID uuid) {
         lastSend.put(uuid, System.currentTimeMillis());
-        rateCounter.computeIfAbsent(uuid, k -> new AtomicInteger(0)).incrementAndGet();
     }
 
     public CheckResult checkBroadcast(Player player) {

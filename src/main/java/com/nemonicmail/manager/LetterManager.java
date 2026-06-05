@@ -22,10 +22,16 @@ import java.util.concurrent.*;
 
 public class LetterManager {
 
+    private record CachedInbox(List<Letter> letters, long expiresAt) {}
+
     private final NemonicMail plugin;
     private final StorageProvider storage;
     private final ExecutorService ioExecutor;
-    private final ConcurrentHashMap<UUID, List<Letter>> inboxCache = new ConcurrentHashMap<>();
+    private final Map<UUID, CachedInbox> inboxCache;
+    /** UUIDs com aquecimento de cache em andamento — evita disparar várias cargas para o mesmo jogador. */
+    private final Set<UUID> warming = ConcurrentHashMap.newKeySet();
+    private static final int MAX_CACHE_ENTRIES = 500;
+    private static final long CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutos
 
     public LetterManager(NemonicMail plugin, StorageProvider storage) {
         this.plugin = plugin;
@@ -35,6 +41,15 @@ public class LetterManager {
             t.setDaemon(true);
             return t;
         });
+        // LinkedHashMap com LRU eviction
+        this.inboxCache = Collections.synchronizedMap(
+            new LinkedHashMap<UUID, CachedInbox>(16, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<UUID, CachedInbox> eldest) {
+                    return size() > MAX_CACHE_ENTRIES;
+                }
+            }
+        );
     }
 
     public void shutdown() {
@@ -44,6 +59,24 @@ public class LetterManager {
         } catch (InterruptedException ignored) {
             Thread.currentThread().interrupt();
         }
+    }
+
+    // --- Cache helpers ---
+
+    private List<Letter> getCachedLetters(UUID uuid, long now) {
+        CachedInbox cached = inboxCache.get(uuid);
+        if (cached != null && cached.expiresAt() > now) {
+            return cached.letters();
+        }
+        return new CopyOnWriteArrayList<>();
+    }
+
+    private void setCachedLetters(UUID uuid, List<Letter> letters) {
+        long now = System.currentTimeMillis();
+        inboxCache.put(uuid, new CachedInbox(
+            new CopyOnWriteArrayList<>(letters),
+            now + CACHE_TTL_MS
+        ));
     }
 
     // --- Scheduler de entrega ---
@@ -69,8 +102,14 @@ public class LetterManager {
                 if (recipient == null || !recipient.isOnline()) return;
 
                 Letter delivered = letter.withDelivered(true);
-                inboxCache.computeIfAbsent(letter.recipientUUID(),
-                        k -> new CopyOnWriteArrayList<>()).add(0, delivered);
+                UUID recipientId = letter.recipientUUID();
+                inboxCache.compute(recipientId, (k, cached) -> {
+                    List<Letter> letters = (cached != null && cached.expiresAt() > now)
+                            ? new CopyOnWriteArrayList<>(cached.letters())
+                            : new CopyOnWriteArrayList<>();
+                    letters.add(0, delivered);
+                    return new CachedInbox(letters, now + CACHE_TTL_MS);
+                });
                 notifyNewLetter(recipient, letter);
             });
         }
@@ -91,7 +130,7 @@ public class LetterManager {
             for (Letter bc : broadcasts) {
                 if (inbox.stream().noneMatch(l -> l.id().equals(bc.id()))) inbox.add(0, bc);
             }
-            inboxCache.put(uuid, new CopyOnWriteArrayList<>(inbox));
+            setCachedLetters(uuid, inbox);
 
             long unreadDirect = inbox.stream().filter(l -> !l.read() && l.type() != LetterType.BROADCAST).count();
             long total = unreadDirect + broadcasts.size();
@@ -119,8 +158,12 @@ public class LetterManager {
                 Player recipient = Bukkit.getPlayer(letter.recipientUUID());
                 if (recipient != null) {
                     Letter delivered = letter.withDelivered(true);
-                    inboxCache.computeIfAbsent(letter.recipientUUID(),
-                            k -> new CopyOnWriteArrayList<>()).add(0, delivered);
+                    long now = System.currentTimeMillis();
+                    inboxCache.compute(letter.recipientUUID(), (k, cached) -> {
+                        List<Letter> letters = getCachedLetters(letter.recipientUUID(), now);
+                        letters.add(0, delivered);
+                        return new CachedInbox(letters, now + CACHE_TTL_MS);
+                    });
                     Bukkit.getScheduler().runTask(plugin, () -> notifyNewLetter(recipient, letter));
                 }
             }
@@ -131,9 +174,13 @@ public class LetterManager {
         CompletableFuture.runAsync(() -> {
             storage.insertLetter(letter);
             Bukkit.getScheduler().runTask(plugin, () -> {
+                long now = System.currentTimeMillis();
                 for (Player p : Bukkit.getOnlinePlayers()) {
-                    inboxCache.computeIfAbsent(p.getUniqueId(),
-                            k -> new CopyOnWriteArrayList<>()).add(0, letter);
+                    inboxCache.compute(p.getUniqueId(), (k, cached) -> {
+                        List<Letter> letters = getCachedLetters(p.getUniqueId(), now);
+                        letters.add(0, letter);
+                        return new CachedInbox(letters, now + CACHE_TTL_MS);
+                    });
                     notifyNewLetter(p, letter);
                 }
             });
@@ -143,18 +190,58 @@ public class LetterManager {
     // --- Cache access ---
 
     public List<Letter> getInbox(UUID playerUUID) {
-        return inboxCache.getOrDefault(playerUUID, Collections.emptyList());
+        long now = System.currentTimeMillis();
+        return getCachedLetters(playerUUID, now);
     }
 
     public int getUnreadCount(UUID playerUUID) {
-        List<Letter> cached = inboxCache.get(playerUUID);
-        if (cached != null) return (int) cached.stream().filter(l -> !l.read()).count();
+        long now = System.currentTimeMillis();
+        List<Letter> cached = getCachedLetters(playerUUID, now);
+        if (!cached.isEmpty()) return (int) cached.stream().filter(l -> !l.read()).count();
         return storage.countUnread(playerUUID) + storage.countUnreadBroadcasts(playerUUID);
     }
 
+    /**
+     * Contagem de não lidas SEM nenhuma consulta síncrona ao banco — segura para a main thread
+     * (ex.: PlaceholderAPI resolve placeholders no thread do servidor, em scoreboard/chat/actionbar).
+     * Em cache miss retorna 0 e aquece o cache de forma assíncrona; na próxima chamada o valor real aparece.
+     * O cache já é populado no onPlayerJoin, então o miss só ocorre após expirar o TTL (5 min).
+     */
+    public int getUnreadCountFast(UUID playerUUID) {
+        long now = System.currentTimeMillis();
+        CachedInbox cached = inboxCache.get(playerUUID);
+        if (cached != null && cached.expiresAt() > now) {
+            return (int) cached.letters().stream().filter(l -> !l.read()).count();
+        }
+        warmInboxAsync(playerUUID);
+        return 0;
+    }
+
+    /** Carrega inbox + broadcasts no cache fora da main thread. Deduplicado por {@link #warming}. */
+    private void warmInboxAsync(UUID uuid) {
+        if (!warming.add(uuid)) return; // já há um aquecimento em andamento
+        CompletableFuture.runAsync(() -> {
+            try {
+                List<Letter> broadcasts = storage.getPendingBroadcasts(uuid);
+                List<Letter> inbox = new ArrayList<>(storage.getInbox(uuid));
+                for (Letter bc : broadcasts) {
+                    if (inbox.stream().noneMatch(l -> l.id().equals(bc.id()))) inbox.add(0, bc);
+                }
+                setCachedLetters(uuid, inbox);
+            } finally {
+                warming.remove(uuid);
+            }
+        }, ioExecutor);
+    }
+
     public void markRead(UUID playerUUID, UUID letterId, LetterType type) {
-        List<Letter> cache = inboxCache.get(playerUUID);
-        if (cache != null) cache.replaceAll(l -> l.id().equals(letterId) ? l.withRead(true) : l);
+        long now = System.currentTimeMillis();
+        CachedInbox cached = inboxCache.get(playerUUID);
+        if (cached != null && cached.expiresAt() > now) {
+            List<Letter> letters = cached.letters();
+            letters.replaceAll(l -> l.id().equals(letterId) ? l.withRead(true) : l);
+            inboxCache.put(playerUUID, new CachedInbox(letters, now + CACHE_TTL_MS));
+        }
         CompletableFuture.runAsync(() -> {
             if (type == LetterType.BROADCAST) storage.markBroadcastSeen(letterId, playerUUID);
             else storage.markRead(letterId);
@@ -165,7 +252,9 @@ public class LetterManager {
         long now = System.currentTimeMillis();
         long directTTL    = TimeUnit.DAYS.toMillis(plugin.getConfig().getLong("cleanup.delete-read-after-days", 30));
         long broadcastTTL = TimeUnit.DAYS.toMillis(plugin.getConfig().getLong("cleanup.delete-broadcast-after-days", 7));
-        CompletableFuture.runAsync(() -> storage.cleanup(now - directTTL, now - broadcastTTL), ioExecutor);
+        long auditTTL     = TimeUnit.DAYS.toMillis(plugin.getConfig().getLong("cleanup.delete-audit-after-days", 90));
+        CompletableFuture.runAsync(
+                () -> storage.cleanup(now - directTTL, now - broadcastTTL, now - auditTTL), ioExecutor);
     }
 
     public void submitIoTask(Runnable task) {
@@ -186,9 +275,9 @@ public class LetterManager {
         return CompletableFuture.runAsync(() -> {
             storage.revokeLetterById(letterId);
             storage.logAudit("LETTER_REVOKED", adminUuid, adminName, letterId.toString(), null);
-            // Evict from all online caches
-            inboxCache.forEach((uuid, letters) ->
-                letters.removeIf(l -> l.id().equals(letterId)));
+            // Evict from all online caches — cached.letters() é CopyOnWriteArrayList (removeIf seguro).
+            inboxCache.forEach((uuid, cached) ->
+                cached.letters().removeIf(l -> l.id().equals(letterId)));
         }, ioExecutor);
     }
 

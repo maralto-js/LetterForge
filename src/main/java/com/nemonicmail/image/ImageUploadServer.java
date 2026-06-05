@@ -4,6 +4,7 @@ import com.nemonicmail.NemonicMail;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
+import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
@@ -82,6 +83,7 @@ public class ImageUploadServer {
     private final Map<String, byte[][]>   ready  = new ConcurrentHashMap<>();
 
     private HttpServer server;
+    private ExecutorService httpExecutor;
 
     public ImageUploadServer(NemonicMail plugin) {
         this.plugin      = plugin;
@@ -96,17 +98,24 @@ public class ImageUploadServer {
         String bindAddr = plugin.getConfig().getString("image-upload.bind-address", "0.0.0.0");
         server = HttpServer.create(new InetSocketAddress(bindAddr, port), 0);
         server.createContext("/upload", this::handle);
-        server.setExecutor(Executors.newFixedThreadPool(4, r -> {
+        httpExecutor = Executors.newFixedThreadPool(4, r -> {
             Thread t = new Thread(r, "nemonicmail-http");
             t.setDaemon(true);
             return t;
-        }));
+        });
+        server.setExecutor(httpExecutor);
         server.start();
         plugin.getLogger().info("[NemonicMail] Upload server ativo em " + bindAddr + ":" + port + ".");
     }
 
     public void stop() {
         if (server != null) server.stop(0);
+        // server.stop() NÃO encerra o executor customizado — sem isto as 4 threads
+        // "nemonicmail-http" vazam a cada reload/disable do plugin.
+        if (httpExecutor != null) {
+            httpExecutor.shutdownNow();
+            httpExecutor = null;
+        }
     }
 
     public String generateToken(UUID playerUuid, String serverIp) {
@@ -182,10 +191,14 @@ public class ImageUploadServer {
 
         Thread.ofVirtual().start(() -> {
             try {
-                // Content filter — check before processing
+                // Decodifica uma única vez (com proteção contra PNG bomb) e reusa a imagem
+                // para os filtros (HSV/NSFW) e para a geração dos tiles.
+                BufferedImage img = ImageProcessor.decode(uploadData);
+
+                // Content filter (HSV) — check before processing
                 if (plugin.getConfig().getBoolean("content-filter.enabled", false)) {
                     float threshold = (float) plugin.getConfig().getDouble("content-filter.skin-threshold", 0.35);
-                    float fraction  = ContentFilter.skinToneFraction(uploadData);
+                    float fraction  = ContentFilter.skinToneFraction(img);
                     if (fraction > threshold) {
                         plugin.getLogger().warning(String.format(
                             "[NemonicMail] [ContentFilter] Upload bloqueado — token=%s player=%s skin=%.2f",
@@ -202,7 +215,37 @@ public class ImageUploadServer {
                     }
                 }
 
-                byte[][] tiles = ImageProcessor.fromBytes(uploadData, 1, 1);
+                // Filtro NSFW (modelo) — só roda se habilitado E se um addon registrou um scorer.
+                if (plugin.getConfig().getBoolean("nsfw-filter.enabled", false)
+                        && NsfwFilter.isAvailable()) {
+                    try {
+                        float nsfwThreshold = (float) plugin.getConfig().getDouble("nsfw-filter.threshold", 0.75);
+                        float nsfwScore = NsfwFilter.score(img);
+                        if (nsfwScore > nsfwThreshold) {
+                            if (plugin.getConfig().getBoolean("nsfw-filter.audit-log", true)) {
+                                plugin.auditLog("NSFW_FLAGGED", playerUuid.toString(), null, tok,
+                                        String.format("upload nsfw=%.2f > threshold=%.2f", nsfwScore, nsfwThreshold));
+                            }
+                            if (plugin.getConfig().getBoolean("nsfw-filter.notify-admin", true)) {
+                                plugin.getLogger().warning(String.format(
+                                        "[NemonicMail] [NSFW] Upload bloqueado — token=%s player=%s score=%.2f",
+                                        tok, playerUuid, nsfwScore));
+                            }
+                            sendJson(ex, 200, "{\"status\":\"ok\",\"warning\":\"conteudo_em_revisao\"}");
+                            plugin.getServer().getScheduler().runTask(plugin, () -> {
+                                var p = plugin.getServer().getPlayer(playerUuid);
+                                if (p != null)
+                                    p.sendMessage(plugin.getMessages().prefixed("filter.upload-flagged"));
+                            });
+                            return;
+                        }
+                    } catch (Exception nsfwErr) {
+                        // Falha de inferência não deve impedir o upload — apenas registra.
+                        plugin.getLogger().warning("[NemonicMail] [NSFW] Erro na inferência: " + nsfwErr.getMessage());
+                    }
+                }
+
+                byte[][] tiles = ImageProcessor.fromImage(img, 1, 1);
                 ready.put(tok, tiles);
                 sendJson(ex, 200, "{\"status\":\"ok\"}");
                 plugin.getServer().getScheduler().runTask(plugin, () -> {

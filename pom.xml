@@ -64,6 +64,11 @@
             <version>2.11.6</version>
             <scope>provided</scope>
         </dependency>
+
+        <!-- ONNX Runtime REMOVIDO do core (plugin leve):
+             a detecção NSFW é fornecida pelo addon premium NemonicMail-NSFW-Model,
+             que carrega o ONNX em seu próprio classloader e registra um NsfwScorer via
+             NsfwFilter.register(). O core depende apenas de SQLite + Gson (do Paper). -->
     </dependencies>
 
     <build>

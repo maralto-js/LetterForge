@@ -98,7 +98,9 @@ upload:
 
 # --- Filtro de conteudo ---
 filter:
-  upload-flagged: '&cSua imagem foi retida para revisao. Um administrador sera notificado.'
+  upload-flagged:   '&cSua imagem foi retida para revisao. Um administrador sera notificado.'
+  nsfw-blocked:     '&cSua imagem foi bloqueada por conteudo inadequado.'
+  nsfw-blocked-url: '&cA imagem do link foi bloqueada por conteudo inadequado.'
 
 # --- Comandos admin ---
 admin:

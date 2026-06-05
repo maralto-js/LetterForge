@@ -38,6 +38,8 @@ cleanup:
   delete-read-after-days: 30
   # Deletar broadcasts apos X dias
   delete-broadcast-after-days: 7
+  # Deletar entradas do log de auditoria apos X dias
+  delete-audit-after-days: 90
   # Intervalo de limpeza em horas
   run-every-hours: 24
 
@@ -69,6 +71,21 @@ content-filter:
   # Fracao de pixels com tom de pele para bloquear a imagem (0.0 - 1.0)
   # 0.35 = 35% dos pixels opacos com tom de pele -> bloqueado
   skin-threshold: 0.35
+
+# -----------------------------------------------------------------------
+# Filtro NSFW via modelo ONNX local
+# -----------------------------------------------------------------------
+nsfw-filter:
+  # Ativar requer nsfw_model.onnx na pasta do plugin
+  # Baixar de: https://huggingface.co/Falconsai/nsfw_image_detection
+  enabled: false
+  # Score acima deste valor bloqueia a imagem (0.0 = seguro, 1.0 = nsfw)
+  # Recomendado: 0.75 para reduzir falsos positivos
+  threshold: 0.75
+  # Avisar administradores no console quando imagem bloqueada
+  notify-admin: true
+  # Registrar tentativas bloqueadas no audit_log do banco de dados
+  audit-log: true
 
 # -----------------------------------------------------------------------
 # Sistema de imagens em mapas

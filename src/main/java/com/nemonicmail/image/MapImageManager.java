@@ -112,6 +112,30 @@ public class MapImageManager {
                                 throw new RuntimeException("Imagem bloqueada pelo filtro de conteúdo");
                             }
                         }
+                        // Filtro NSFW (modelo) — só roda se habilitado E se um addon registrou um scorer.
+                        if (plugin.getConfig().getBoolean("nsfw-filter.enabled", false)
+                                && NsfwFilter.isAvailable()) {
+                            try {
+                                float nsfwThreshold = (float) plugin.getConfig().getDouble("nsfw-filter.threshold", 0.75);
+                                float nsfwScore = NsfwFilter.score(img);
+                                if (nsfwScore > nsfwThreshold) {
+                                    if (plugin.getConfig().getBoolean("nsfw-filter.audit-log", true)) {
+                                        plugin.auditLog("NSFW_FLAGGED_URL", playerUuid.toString(), null, url,
+                                                String.format("url nsfw=%.2f > threshold=%.2f", nsfwScore, nsfwThreshold));
+                                    }
+                                    if (plugin.getConfig().getBoolean("nsfw-filter.notify-admin", true)) {
+                                        plugin.getLogger().warning(String.format(
+                                                "[NemonicMail] [NSFW] URL bloqueada — player=%s score=%.2f", playerUuid, nsfwScore));
+                                    }
+                                    throw new RuntimeException("Imagem bloqueada pelo filtro NSFW");
+                                }
+                            } catch (RuntimeException re) {
+                                throw re;
+                            } catch (Exception nsfwErr) {
+                                // Falha de inferência não deve derrubar o envio — apenas registra.
+                                plugin.getLogger().warning("[NemonicMail] [NSFW] Erro na inferência: " + nsfwErr.getMessage());
+                            }
+                        }
                         byte[][] t = ImageProcessor.fromImage(img, gridW, gridH);
                         cache.put(url, t);
                         return t;

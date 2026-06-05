@@ -5,6 +5,7 @@ import com.nemonicmail.config.Messages;
 import com.nemonicmail.image.ImageProcessor;
 import com.nemonicmail.image.ImageUploadServer;
 import com.nemonicmail.image.MapImageManager;
+import com.nemonicmail.image.NsfwFilter;
 import com.nemonicmail.listener.BookEditListener;
 import com.nemonicmail.listener.GUIListener;
 import com.nemonicmail.listener.PlayerJoinListener;
@@ -47,6 +48,11 @@ public final class NemonicMail extends JavaPlugin {
 
         // Apply configurable image dimension limit on startup
         ImageProcessor.setMaxImageDimension(getConfig().getInt("security.max-image-dimension", 8192));
+
+        // NSFW: o core é leve e não embute ONNX. Um scorer real é registrado pelo addon
+        // premium (NemonicMail-NSFW-Model) via NsfwFilter.register(). Sem o addon, a
+        // moderação usa apenas o ContentFilter (HSV).
+        NsfwFilter.init(getLogger());
 
         if (storage instanceof SQLiteStorage sqStorage
                 && getConfig().getBoolean("image-rendering.enabled", true)) {
@@ -99,6 +105,7 @@ public final class NemonicMail extends JavaPlugin {
         if (imageUploadServer != null) imageUploadServer.stop();
         if (letterManager != null)     letterManager.shutdown();
         if (storage != null)           storage.close();
+        NsfwFilter.close();
         getLogger().info("[NemonicMail] Plugin descarregado.");
     }
 

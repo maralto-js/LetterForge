@@ -60,6 +60,15 @@ public final class ImageProcessor {
         return fromImage(img, gridW, gridH);
     }
 
+    /**
+     * Decodifica bytes para uma BufferedImage aplicando a proteção contra PNG bomb
+     * (validação de dimensões antes do decode completo). Permite reusar a mesma imagem
+     * para filtros (HSV/NSFW) e para a geração de tiles, evitando decodificar duas vezes.
+     */
+    public static BufferedImage decode(byte[] data) throws IOException {
+        return readWithDimensionCheck(data);
+    }
+
     /** Tile grid from an already-decoded BufferedImage. Used by MapImageManager for content filtering. */
     public static byte[][] fromImage(BufferedImage img, int gridW, int gridH) {
         BufferedImage full = scale(img, MAP_SIZE * gridW, MAP_SIZE * gridH);
@@ -177,21 +186,29 @@ public final class ImageProcessor {
         for (InetAddress addr : addrs) assertPublicIp(addr);
 
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-        conn.setConnectTimeout(8_000);
-        conn.setReadTimeout(15_000);
-        conn.setInstanceFollowRedirects(false); // block redirect SSRF
-        conn.setRequestProperty("User-Agent", "NemonicMail/1.0");
+        try {
+            conn.setConnectTimeout(8_000);
+            conn.setReadTimeout(15_000);
+            conn.setInstanceFollowRedirects(false); // block redirect SSRF
+            conn.setRequestProperty("User-Agent", "NemonicMail/1.0");
 
-        int status = conn.getResponseCode();
-        if (status / 100 == 3) throw new IOException("Redirecionamentos não são permitidos");
-        if (status != 200)     throw new IOException("Servidor retornou HTTP " + status);
+            int status = conn.getResponseCode();
+            if (status / 100 == 3) throw new IOException("Redirecionamentos não são permitidos");
+            if (status != 200)     throw new IOException("Servidor retornou HTTP " + status);
 
-        // Read bounded bytes — Content-Length header is not trusted
-        byte[] data = conn.getInputStream().readNBytes(MAX_URL_BYTES + 1);
-        if (data.length > MAX_URL_BYTES)
-            throw new IOException("Imagem excede o limite de " + (MAX_URL_BYTES / 1024 / 1024) + " MB");
+            // Read bounded bytes — Content-Length header is not trusted
+            byte[] data;
+            try (var in = conn.getInputStream()) {
+                data = in.readNBytes(MAX_URL_BYTES + 1);
+            }
+            if (data.length > MAX_URL_BYTES)
+                throw new IOException("Imagem excede o limite de " + (MAX_URL_BYTES / 1024 / 1024) + " MB");
 
-        return readWithDimensionCheck(data);
+            return readWithDimensionCheck(data);
+        } finally {
+            // Libera o socket subjacente — sem isso a conexão (keep-alive) fica pendurada.
+            conn.disconnect();
+        }
     }
 
     private static void assertPublicIp(InetAddress addr) throws SecurityException {

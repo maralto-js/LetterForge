@@ -40,8 +40,8 @@ public interface StorageProvider {
     /** Conta broadcasts não vistos. */
     int countUnreadBroadcasts(UUID playerUUID);
 
-    /** Remove cartas antigas conforme política de limpeza. */
-    void cleanup(long directOlderThan, long broadcastOlderThan);
+    /** Remove cartas antigas e entradas de auditoria conforme política de limpeza. */
+    void cleanup(long directOlderThan, long broadcastOlderThan, long auditOlderThan);
 
     /**
      * Retorna todas as cartas diretas não entregues cujo deliverAt <= currentTime,

@@ -295,18 +295,25 @@ public class SQLiteStorage implements StorageProvider {
     }
 
     @Override
-    public synchronized void cleanup(long directOlderThan, long broadcastOlderThan) {
+    public synchronized void cleanup(long directOlderThan, long broadcastOlderThan, long auditOlderThan) {
         long now = System.currentTimeMillis();
-        try (Statement s = connection.createStatement()) {
-            s.execute("DELETE FROM letters WHERE expires_at > 0 AND expires_at < " + now);
-            s.execute("DELETE FROM letters WHERE type != 'BROADCAST' AND read = 1 AND sent_at < " + directOlderThan);
-            s.execute("DELETE FROM letters WHERE type = 'BROADCAST' AND sent_at < " + broadcastOlderThan);
-            s.execute("DELETE FROM broadcast_seen WHERE letter_id NOT IN (SELECT id FROM letters)");
-            // Prune audit log older than 90 days
-            long auditCutoff = now - 90L * 24 * 3600 * 1000;
-            s.execute("DELETE FROM audit_log WHERE event_time < " + auditCutoff);
+        try {
+            executeUpdate("DELETE FROM letters WHERE expires_at > 0 AND expires_at < ?", now);
+            executeUpdate("DELETE FROM letters WHERE type != 'BROADCAST' AND read = 1 AND sent_at < ?", directOlderThan);
+            executeUpdate("DELETE FROM letters WHERE type = 'BROADCAST' AND sent_at < ?", broadcastOlderThan);
+            try (Statement s = connection.createStatement()) {
+                s.execute("DELETE FROM broadcast_seen WHERE letter_id NOT IN (SELECT id FROM letters)");
+            }
+            executeUpdate("DELETE FROM audit_log WHERE event_time < ?", auditOlderThan);
         } catch (SQLException e) {
             logger.warning("[NemonicMail] Erro durante cleanup: " + e.getMessage());
+        }
+    }
+
+    private void executeUpdate(String sql, long param) throws SQLException {
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setLong(1, param);
+            ps.executeUpdate();
         }
     }
 
