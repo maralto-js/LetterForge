@@ -47,7 +47,7 @@ public final class NemonicMail extends JavaPlugin {
         }
 
         // Apply configurable image dimension limit on startup
-        ImageProcessor.setMaxImageDimension(getConfig().getInt("security.max-image-dimension", 8192));
+        ImageProcessor.setMaxImageDimension(getConfig().getInt("security.max-image-dimension", 4096));
 
         // NSFW: o core é leve e não embute ONNX. Um scorer real é registrado pelo addon
         // premium (NemonicMail-NSFW-Model) via NsfwFilter.register(). Sem o addon, a
@@ -94,7 +94,12 @@ public final class NemonicMail extends JavaPlugin {
 
         long intervalHours = getConfig().getLong("cleanup.run-every-hours", 24);
         getServer().getAsyncScheduler().runAtFixedRate(this,
-                task -> letterManager.runCleanup(),
+                task -> {
+                    // Purges expired letters, audit rows AND moderation image copies (4-day TTL),
+                    // then clears the in-memory image cache so nothing lingers in RAM.
+                    letterManager.runCleanup();
+                    if (mapImageManager != null) mapImageManager.clearCache();
+                },
                 intervalHours, intervalHours, TimeUnit.HOURS);
 
         getLogger().info("[NemonicMail] Plugin carregado com sucesso.");
@@ -112,7 +117,7 @@ public final class NemonicMail extends JavaPlugin {
     public void reload() {
         reloadConfig();
         messages.reload();
-        ImageProcessor.setMaxImageDimension(getConfig().getInt("security.max-image-dimension", 8192));
+        ImageProcessor.setMaxImageDimension(getConfig().getInt("security.max-image-dimension", 4096));
         if (mapImageManager != null) mapImageManager.clearCache();
         getLogger().info("[NemonicMail] Configuracoes e mensagens recarregadas.");
     }

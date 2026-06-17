@@ -60,6 +60,7 @@ image:
   attached:          '&6Mapa ilustrado anexado a carta!'
   url-usage:         '&eUso: /carta imagem url <url> [1x1|2x1|2x2]'
   confirm-usage:     '&eUso: /carta imagem confirmar <token>'
+  daily-limit:       '&cVoce atingiu o limite de &e{limit}&c imagens por dia. Tente novamente amanha.'
 
 # --- Cooldown / Rate limit ---
 cooldown:
@@ -102,6 +103,12 @@ filter:
   nsfw-blocked:     '&cSua imagem foi bloqueada por conteudo inadequado.'
   nsfw-blocked-url: '&cA imagem do link foi bloqueada por conteudo inadequado.'
 
+# --- Erros gerais ---
+error:
+  invalid-metadata: '&cDados da carta invalidos. Refaca com /carta escrever.'
+  general:          '&cOcorreu um erro ao processar a carta. Tente novamente.'
+  send-failed:      '&cFalha ao salvar a carta no servidor. Seu livro foi mantido — tente assinar de novo.'
+
 # --- Comandos admin ---
 admin:
   debug-usage:      '&eUso: /carta admin debug on|off'
@@ -110,6 +117,9 @@ admin:
   ver-usage:        '&eUso: /carta admin ver <jogador>'
   revogar-usage:    '&eUso: /carta admin revogar <id>'
   quem-usage:       '&eUso: /carta admin quem <id>'
+  imagem-usage:     '&eUso: /carta admin imagem <id>'
   invalid-id:       '&cID de carta invalido. Formato esperado: UUID (ex: a1b2c3d4-...)'
   revoked:          '&aCarta &e{id} &arevogada com sucesso.'
-  letter-not-found: '&cCarta nao encontrada. Pode ja ter sido deletada.'
+  letter-not-found: '&cCarta nao encontrada com este ID. Confira a digitacao (a fonte confunde 3/9 e 0/O) — use o botao [Ver] em /carta admin ver para preencher o ID automaticamente.'
+  no-mod-image:     '&cNenhuma imagem de moderacao para esta carta (sem anexo ou ja expirou apos 4 dias).'
+  mod-image-given:  '&a{count} imagem(ns) de moderacao entregue(s) ao seu inventario.'

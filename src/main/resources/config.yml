@@ -25,6 +25,11 @@ image-cooldowns:
   # Cooldown entre uploads (segundos) — maior para reduzir abuso
   upload-seconds: 60
 
+image-limits:
+  # Maximo de imagens por jogador por dia (reset a meia-noite). 0 = sem limite.
+  # Isento: nemonicmail.image.unlimited e nemonicmail.admin
+  daily: 3
+
 delivery:
   # Delay para cartas normais em segundos (0 = instantaneo)
   direct-delay-seconds: 0
@@ -34,12 +39,26 @@ delivery:
   check-interval-seconds: 15
 
 cleanup:
-  # Deletar cartas lidas apos X dias
+  # ---------------------------------------------------------------
+  # RETENCAO: por quantos dias cada carta fica salva, contando do
+  # ENVIO e valendo para lidas E nao lidas. Passado o prazo a carta
+  # some da caixa e e apagada na proxima limpeza.
+  # Valor invalido ou <= 0 e ignorado (o plugin usa 15 e avisa no console).
+  # ---------------------------------------------------------------
+  letter-retention-days: 15
+  broadcast-retention-days: 15
+  # Deletar cartas LIDAS antes do fim da retencao? Este valor so age
+  # se for MENOR que a retencao (padrao 30 = nao age).
   delete-read-after-days: 30
-  # Deletar broadcasts apos X dias
+  # (legado — broadcasts agora seguem broadcast-retention-days)
   delete-broadcast-after-days: 7
   # Deletar entradas do log de auditoria apos X dias
   delete-audit-after-days: 90
+  # Deletar copias de moderacao de imagens apos X dias.
+  # Toda imagem enviada e guardada por este periodo para que a staff possa verificar
+  # exatamente o que foi enviado (inclusive de cartas anonimas). Depois e apagada
+  # automaticamente, junto com o cache em memoria, para nao encher o disco.
+  delete-moderation-image-after-days: 4
   # Intervalo de limpeza em horas
   run-every-hours: 24
 
@@ -59,8 +78,10 @@ messages:
 # -----------------------------------------------------------------------
 security:
   # Dimensao maxima de imagem antes do decode completo (protecao contra PNG bomb)
-  # Imagens com width ou height acima deste valor sao rejeitadas imediatamente
-  max-image-dimension: 8192
+  # Imagens com width ou height acima deste valor sao rejeitadas imediatamente.
+  # 4096 = ate ~64 MB de heap por decode. NAO suba para 8192 sem necessidade real
+  # (8192x8192 ARGB = 256 MB por imagem; varios uploads simultaneos = risco de OOM).
+  max-image-dimension: 4096
 
 # -----------------------------------------------------------------------
 # Filtro de conteudo (+18)
@@ -106,9 +127,11 @@ image-upload:
   enabled: true
   # Porta do servidor de upload (deve estar aberta no firewall)
   port: 8517
-  # Endereco de bind — use "127.0.0.1" ao usar Nginx como proxy reverso
-  # Use "0.0.0.0" para acesso direto (porta deve estar aberta no firewall)
-  bind-address: "0.0.0.0"
+  # Endereco de bind. PADRAO SEGURO: "127.0.0.1" (so aceita conexoes locais).
+  # O upload roda em HTTP puro (sem TLS), entao para acesso externo o RECOMENDADO e
+  # colocar um proxy reverso HTTPS (Nginx/Caddy) na frente e manter este bind em 127.0.0.1.
+  # Use "0.0.0.0" APENAS se entender o risco de expor a porta diretamente sem TLS.
+  bind-address: "127.0.0.1"
   # IP publico ou hostname do servidor — jogadores usarao este endereco no link
   # IMPORTANTE: altere para o IP publico real do seu servidor
   server-ip: "SEU-IP-AQUI"

@@ -13,7 +13,8 @@ public interface StorageProvider {
 
     void close();
 
-    void insertLetter(Letter letter);
+    /** @return true if the letter row was persisted; false on failure (caller must not destroy the draft). */
+    boolean insertLetter(Letter letter);
 
     /** Inbox completo do jogador (max 50), ordenado por data desc. */
     List<Letter> getInbox(UUID playerUUID);
@@ -42,6 +43,9 @@ public interface StorageProvider {
 
     /** Remove cartas antigas e entradas de auditoria conforme política de limpeza. */
     void cleanup(long directOlderThan, long broadcastOlderThan, long auditOlderThan);
+
+    /** Remove cópias de moderação de imagens mais antigas que {@code olderThan} (epoch ms). */
+    void cleanupModerationImages(long olderThan);
 
     /**
      * Retorna todas as cartas diretas não entregues cujo deliverAt <= currentTime,

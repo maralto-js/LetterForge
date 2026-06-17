@@ -178,14 +178,28 @@ public class CartaCommand implements CommandExecutor, TabCompleter {
     // -----------------------------------------------------------------------
 
     private boolean handleInbox(Player player, String[] args) {
-        int page = 0;
+        int pageArg = 0;
         if (args.length >= 2) {
-            try { page = Math.max(0, Integer.parseInt(args[1]) - 1); }
+            try { pageArg = Math.max(0, Integer.parseInt(args[1]) - 1); }
             catch (NumberFormatException ignored) {}
         }
-        var inbox = letterManager.getInbox(player.getUniqueId());
-        if (inbox.isEmpty()) { player.sendMessage(plugin.getMessages().prefixed("inbox.empty")); return true; }
-        new CaixaCorreioGUI(player, inbox, page).open();
+        final int page = pageArg;
+        // Sempre carrega do banco (async) — a GUI não pode depender do TTL de 5 min do cache,
+        // senão a caixa aparece vazia/incompleta para quem está online há mais tempo.
+        letterManager.getInboxAsync(player.getUniqueId()).whenComplete((inbox, err) ->
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                if (!player.isOnline()) return;
+                if (err != null) {
+                    plugin.getLogger().warning("[NemonicMail] Erro ao carregar inbox: " + err.getMessage());
+                    player.sendMessage(plugin.getMessages().prefixed("error.general"));
+                    return;
+                }
+                if (inbox.isEmpty()) {
+                    player.sendMessage(plugin.getMessages().prefixed("inbox.empty"));
+                    return;
+                }
+                new CaixaCorreioGUI(player, inbox, page).open();
+            }));
         return true;
     }
 
@@ -281,6 +295,12 @@ public class CartaCommand implements CommandExecutor, TabCompleter {
             return true;
         }
 
+        if (!spamGuard.canSendImage(player)) {
+            player.sendMessage(msgs.prefixed("image.daily-limit",
+                    Map.of("limit", String.valueOf(spamGuard.imageDailyLimit()))));
+            return true;
+        }
+
         String url  = args[2];
         int[]  grid = parseGrid(args.length >= 4 ? args[3] : "1x1");
         spamGuard.recordImageUrl(player.getUniqueId());
@@ -289,6 +309,7 @@ public class CartaCommand implements CommandExecutor, TabCompleter {
         plugin.getMapImageManager()
             .processUrl(player.getUniqueId(), url, grid[0], grid[1])
             .thenRun(() -> Bukkit.getScheduler().runTask(plugin, () -> {
+                spamGuard.recordImageSent(player);
                 if (player.isOnline()) player.sendMessage(msgs.prefixed("image.ready"));
             }))
             .exceptionally(err -> {
@@ -318,6 +339,12 @@ public class CartaCommand implements CommandExecutor, TabCompleter {
             return true;
         }
 
+        if (!spamGuard.canSendImage(player)) {
+            player.sendMessage(msgs.prefixed("image.daily-limit",
+                    Map.of("limit", String.valueOf(spamGuard.imageDailyLimit()))));
+            return true;
+        }
+
         String serverIp  = plugin.getConfig().getString("image-upload.server-ip", "localhost");
         String uploadUrl = ups.generateToken(player.getUniqueId(), serverIp);
         spamGuard.recordImageUpload(player.getUniqueId());
@@ -335,10 +362,16 @@ public class CartaCommand implements CommandExecutor, TabCompleter {
         var ups = plugin.getImageUploadServer();
         if (ups == null) { player.sendMessage(msgs.prefixed("image.upload-disabled")); return true; }
         if (args.length < 3) { player.sendMessage(msgs.prefixed("image.confirm-usage")); return true; }
+        if (!spamGuard.canSendImage(player)) {
+            player.sendMessage(msgs.prefixed("image.daily-limit",
+                    Map.of("limit", String.valueOf(spamGuard.imageDailyLimit()))));
+            return true;
+        }
         String token = args[2];
         ups.consumeReady(token, player.getUniqueId()).ifPresentOrElse(
             tiles -> {
                 plugin.getMapImageManager().storePending(player.getUniqueId(), tiles, 1, 1);
+                spamGuard.recordImageSent(player);
                 player.sendMessage(msgs.prefixed("image.confirmed"));
             },
             () -> player.sendMessage(msgs.prefixed("image.token-invalid"))
@@ -376,6 +409,7 @@ public class CartaCommand implements CommandExecutor, TabCompleter {
             case "ver"     -> handleAdminVer(player, args);
             case "revogar" -> handleAdminRevogar(player, args);
             case "quem"    -> handleAdminQuem(player, args);
+            case "imagem"  -> handleAdminImagem(player, args);
             default        -> { sendAdminHelp(player); yield true; }
         };
     }
@@ -426,9 +460,11 @@ public class CartaCommand implements CommandExecutor, TabCompleter {
                         Component line = Component.text("  [" + type + "] ", NamedTextColor.YELLOW)
                             .append(Component.text("De: " + l.senderName() + " | " + date
                                 + " | Lida:" + read, NamedTextColor.GRAY))
-                            .append(Component.text(" [ID]", NamedTextColor.AQUA)
-                                .hoverEvent(HoverEvent.showText(
-                                    Component.text(l.id().toString(), NamedTextColor.WHITE))));
+                            .append(Component.text(" [Ver]", NamedTextColor.AQUA, TextDecoration.UNDERLINED)
+                                .clickEvent(ClickEvent.suggestCommand("/carta admin quem " + l.id()))
+                                .hoverEvent(HoverEvent.showText(Component.text(
+                                    "Clique para ver esta carta\n", NamedTextColor.GRAY)
+                                    .append(Component.text(l.id().toString(), NamedTextColor.WHITE)))));
                         player.sendMessage(line);
                     });
                     if (letters.size() > 15)
@@ -470,7 +506,13 @@ public class CartaCommand implements CommandExecutor, TabCompleter {
         }
 
         letterManager.getLetter(letterId)
-            .thenAccept(opt -> Bukkit.getScheduler().runTask(plugin, () -> {
+            .thenAccept(opt -> {
+                // Consulta de imagem AQUI (thenAccept roda no ioExecutor) — fazê-la dentro do
+                // runTask bloquearia a main thread numa query SQLite disputada com o executor.
+                var mimAsync = plugin.getMapImageManager();
+                final boolean hasImage = opt.isPresent() && mimAsync != null
+                        && mimAsync.hasModerationImage(opt.get().id());
+                Bukkit.getScheduler().runTask(plugin, () -> {
                 if (!player.isOnline()) return;
                 if (opt.isEmpty()) {
                     player.sendMessage(msgs.prefixed("admin.letter-not-found"));
@@ -484,13 +526,61 @@ public class CartaCommand implements CommandExecutor, TabCompleter {
                 player.sendMessage(Component.text("  Remetente real: ", NamedTextColor.YELLOW)
                     .append(Component.text(l.senderName() + " (" + l.senderUUID() + ")",
                             NamedTextColor.WHITE)));
+                if (l.type() == LetterType.ANONYMOUS)
+                    player.sendMessage(Component.text("  ⚠ Carta anonima — remetente revelado acima.",
+                            NamedTextColor.RED));
                 player.sendMessage(Component.text("  Destinatario: ", NamedTextColor.YELLOW)
                     .append(Component.text(l.recipientName(), NamedTextColor.WHITE)));
                 player.sendMessage(Component.text("  Tipo: ", NamedTextColor.YELLOW)
                     .append(Component.text(l.type().name(), NamedTextColor.WHITE)));
                 player.sendMessage(Component.text("  Enviada: ", NamedTextColor.YELLOW)
                     .append(Component.text(DATE_FMT.format(new Date(l.sentAt())), NamedTextColor.WHITE)));
-            }));
+
+                // Conteudo completo da mensagem (todas as paginas).
+                player.sendMessage(Component.text("  Mensagem:", NamedTextColor.YELLOW));
+                if (l.pages().isEmpty()) {
+                    player.sendMessage(Component.text("    (vazia)", NamedTextColor.DARK_GRAY));
+                } else {
+                    int pageNum = 1;
+                    for (String page : l.pages()) {
+                        player.sendMessage(Component.text("    [" + pageNum++ + "] ", NamedTextColor.DARK_GRAY)
+                            .append(Component.text(page, NamedTextColor.WHITE)));
+                    }
+                }
+
+                // Indicador de imagem + atalho para recuperar a copia de moderacao
+                // (hasImage foi consultado no thread de IO, antes do runTask).
+                if (hasImage) {
+                    player.sendMessage(Component.text("  Imagem anexada: ", NamedTextColor.YELLOW)
+                        .append(Component.text("SIM ", NamedTextColor.GREEN))
+                        .append(Component.text("[Recuperar imagem]", NamedTextColor.AQUA, TextDecoration.UNDERLINED)
+                            .clickEvent(ClickEvent.runCommand("/carta admin imagem " + l.id()))
+                            .hoverEvent(HoverEvent.showText(
+                                Component.text("Receber o mapa exato que foi enviado", NamedTextColor.GRAY)))));
+                } else {
+                    player.sendMessage(Component.text("  Imagem anexada: ", NamedTextColor.YELLOW)
+                        .append(Component.text("nao (ou ja expirou da moderacao)", NamedTextColor.GRAY)));
+                }
+                });
+            });
+        return true;
+    }
+
+    private boolean handleAdminImagem(Player player, String[] args) {
+        var msgs = plugin.getMessages();
+        var mim = plugin.getMapImageManager();
+        if (mim == null) { player.sendMessage(msgs.prefixed("image.disabled")); return true; }
+        if (args.length < 3) { player.sendMessage(msgs.prefixed("admin.imagem-usage")); return true; }
+        UUID letterId;
+        try {
+            letterId = UUID.fromString(args[2]);
+        } catch (IllegalArgumentException e) {
+            player.sendMessage(msgs.prefixed("admin.invalid-id"));
+            return true;
+        }
+        plugin.auditLog("MOD_IMAGE_VIEWED", player.getUniqueId().toString(), player.getName(),
+                letterId.toString(), null);
+        mim.giveModerationImage(player, letterId);
         return true;
     }
 
@@ -546,10 +636,11 @@ public class CartaCommand implements CommandExecutor, TabCompleter {
         if (player.hasPermission("nemonicmail.broadcast"))
             player.sendMessage(Component.text("/carta todos [urgente|oficial]", NamedTextColor.YELLOW)
                 .append(Component.text(" — Enviar anúncio para todos", NamedTextColor.GRAY)));
-        if (plugin.getMapImageManager() != null) {
-            if (player.hasPermission("nemonicmail.image.url") || player.hasPermission("nemonicmail.image.upload"))
-                player.sendMessage(Component.text("/carta imagem url|upload", NamedTextColor.YELLOW)
-                    .append(Component.text(" — Anexar imagem a uma carta", NamedTextColor.GRAY)));
+        if (plugin.getMapImageManager() != null
+                && (player.hasPermission("nemonicmail.image.url")
+                    || player.hasPermission("nemonicmail.image.upload"))) {
+            player.sendMessage(Component.text("/carta imagem url|upload", NamedTextColor.YELLOW)
+                .append(Component.text(" — Anexar imagem a uma carta", NamedTextColor.GRAY)));
             player.sendMessage(Component.text("/carta imagem status|cancelar|confirmar", NamedTextColor.YELLOW)
                 .append(Component.text(" — Gerenciar imagem pendente", NamedTextColor.GRAY)));
         }
@@ -588,7 +679,9 @@ public class CartaCommand implements CommandExecutor, TabCompleter {
         player.sendMessage(Component.text("/carta admin ver <jogador>", NamedTextColor.YELLOW)
             .append(Component.text(" — Ver cartas de um jogador", NamedTextColor.GRAY)));
         player.sendMessage(Component.text("/carta admin quem <id>", NamedTextColor.YELLOW)
-            .append(Component.text(" — Revelar remetente real (incluindo anônimos)", NamedTextColor.GRAY)));
+            .append(Component.text(" — Remetente real + mensagem completa (inclui anônimos)", NamedTextColor.GRAY)));
+        player.sendMessage(Component.text("/carta admin imagem <id>", NamedTextColor.YELLOW)
+            .append(Component.text(" — Recuperar a imagem exata enviada (até 4 dias)", NamedTextColor.GRAY)));
         player.sendMessage(Component.text("/carta admin revogar <id>", NamedTextColor.YELLOW)
             .append(Component.text(" — Revogar/ocultar uma carta", NamedTextColor.GRAY)));
         player.sendMessage(Component.text("/carta moderar", NamedTextColor.YELLOW)
@@ -631,7 +724,7 @@ public class CartaCommand implements CommandExecutor, TabCompleter {
                     yield subs.stream().filter(s -> s.startsWith(args[1].toLowerCase())).toList();
                 }
                 case "admin" ->
-                    List.of("debug", "ver", "quem", "revogar").stream()
+                    List.of("debug", "ver", "quem", "imagem", "revogar").stream()
                         .filter(s -> s.startsWith(args[1].toLowerCase())).toList();
                 default -> List.of();
             };

@@ -185,6 +185,68 @@ public class MapImageManager {
         }
     }
 
+    /**
+     * Saves a moderation copy of the attached image, tagged with the REAL sender (even for
+     * anonymous letters). Independent of the letter lifecycle and auto-purged after a few days
+     * (see cleanup.delete-moderation-image-after-days). Call via letterManager.submitIoTask().
+     */
+    public void saveModerationImage(UUID letterId, int[] mapIds, PendingImage pending,
+                                    String senderUuid, String senderName,
+                                    String recipient, String letterType) {
+        storage.insertModerationImageBatch(letterId, mapIds, pending.tiles(),
+                pending.gridW(), pending.gridH(), senderUuid, senderName, recipient, letterType);
+    }
+
+    /** True if a moderation copy still exists for this letter (within the retention window). */
+    public boolean hasModerationImage(UUID letterId) {
+        return storage.hasModerationImage(letterId);
+    }
+
+    /**
+     * Hands the moderation copy of a letter's image to a staff member as map item(s) so they can
+     * inspect exactly what was sent. Reuses the original MapView when it still exists; otherwise
+     * recreates a one-off view from the stored pixels.
+     */
+    public void giveModerationImage(Player staff, UUID letterId) {
+        CompletableFuture.runAsync(() -> {
+            List<MapImageEntry> entries = storage.getModerationImages(letterId);
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                if (!staff.isOnline()) return;
+                var msgs = plugin.getMessages();
+                if (entries.isEmpty()) {
+                    staff.sendMessage(msgs.prefixed("admin.no-mod-image"));
+                    return;
+                }
+                World world = Bukkit.getWorlds().get(0);
+                for (MapImageEntry entry : entries) {
+                    MapView view = entry.mapId() >= 0 ? Bukkit.getMap(entry.mapId()) : null;
+                    if (view == null) {
+                        view = Bukkit.createMap(world);
+                        view.getRenderers().forEach(view::removeRenderer);
+                        view.addRenderer(new StaticMapRenderer(entry.pixels()));
+                        view.setTrackingPosition(false);
+                        view.setScale(MapView.Scale.CLOSEST);
+                    }
+                    ItemStack item = new ItemStack(Material.FILLED_MAP);
+                    MapMeta meta = (MapMeta) item.getItemMeta();
+                    meta.setMapView(view);
+                    meta.displayName(Component.text(
+                            "[MODERACAO] Imagem " + (entry.tileIndex() + 1) + "/" + entries.size(),
+                            NamedTextColor.RED).decoration(TextDecoration.ITALIC, false));
+                    item.setItemMeta(meta);
+                    giveOrDrop(staff, item);
+                }
+                staff.sendMessage(msgs.prefixed("admin.mod-image-given",
+                        Map.of("count", String.valueOf(entries.size()))));
+            });
+        });
+    }
+
+    private void giveOrDrop(Player p, ItemStack item) {
+        var overflow = p.getInventory().addItem(item);
+        overflow.values().forEach(i -> p.getWorld().dropItemNaturally(p.getLocation(), i));
+    }
+
     // -----------------------------------------------------------------------
     // Entrega ao jogador
     // -----------------------------------------------------------------------

@@ -6,7 +6,7 @@
 
     <groupId>com.nemonicmail</groupId>
     <artifactId>NemonicMail</artifactId>
-    <version>1.0.0</version>
+    <version>1.1.1</version>
     <packaging>jar</packaging>
 
     <properties>
@@ -33,11 +33,11 @@
     </repositories>
 
     <dependencies>
-        <!-- Paper API 1.21.4 — atualize a versão se necessário -->
+        <!-- Paper API 1.21.10 — alvo de produção do NemonicRP -->
         <dependency>
             <groupId>io.papermc.paper</groupId>
             <artifactId>paper-api</artifactId>
-            <version>1.21.4-R0.1-SNAPSHOT</version>
+            <version>1.21.10-R0.1-SNAPSHOT</version>
             <scope>provided</scope>
         </dependency>
 

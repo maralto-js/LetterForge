@@ -7,6 +7,10 @@ import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
 /**
@@ -35,6 +39,15 @@ public final class Messages {
             plugin.saveResource("messages.yml", false);
         }
         cfg = YamlConfiguration.loadConfiguration(file);
+        // Fallback para os padrões embutidos no jar: saveResource(false) nunca sobrescreve o
+        // arquivo do servidor, então chaves novas de updates não existem no messages.yml antigo
+        // — sem isto o chat mostraria "[msg:chave nao encontrada]" após upgrade do plugin.
+        try (InputStream in = plugin.getResource("messages.yml")) {
+            if (in != null) {
+                cfg.setDefaults(YamlConfiguration.loadConfiguration(
+                        new InputStreamReader(in, StandardCharsets.UTF_8)));
+            }
+        } catch (IOException ignored) {}
     }
 
     /** Retorna a string bruta (com &) da chave, sem conversão. */

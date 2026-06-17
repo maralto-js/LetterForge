@@ -79,6 +79,44 @@ public class LetterManager {
         ));
     }
 
+    /**
+     * Prepends a letter to the player's cached inbox WITHOUT discarding what's already there.
+     * On a cache miss/expired entry it does NOT create a single-letter inbox (that would mask
+     * every older letter for the next 5 minutes — the "cartas sumiram" bug); it just schedules
+     * an async warm-up, which reloads the full inbox from the DB (the new letter is already
+     * inserted at this point, so it is included).
+     */
+    private void addToCache(UUID uuid, Letter letter) {
+        long now = System.currentTimeMillis();
+        CachedInbox cached = inboxCache.get(uuid);
+        if (cached != null && cached.expiresAt() > now) {
+            inboxCache.compute(uuid, (k, c) -> {
+                if (c == null || c.expiresAt() <= now) return c; // expirou no meio — deixa o warm cuidar
+                List<Letter> letters = new CopyOnWriteArrayList<>(c.letters());
+                letters.add(0, letter);
+                return new CachedInbox(letters, now + CACHE_TTL_MS);
+            });
+        } else {
+            warmInboxAsync(uuid);
+        }
+    }
+
+    /**
+     * Carrega o inbox direto do BANCO (inbox + broadcasts pendentes), atualiza o cache e
+     * devolve a lista. Usado pelo /carta caixa — a GUI nunca mais depende do TTL do cache.
+     */
+    public CompletableFuture<List<Letter>> getInboxAsync(UUID uuid) {
+        return CompletableFuture.supplyAsync(() -> {
+            List<Letter> broadcasts = storage.getPendingBroadcasts(uuid);
+            List<Letter> inbox = new ArrayList<>(storage.getInbox(uuid));
+            for (Letter bc : broadcasts) {
+                if (inbox.stream().noneMatch(l -> l.id().equals(bc.id()))) inbox.add(0, bc);
+            }
+            setCachedLetters(uuid, inbox);
+            return inbox;
+        }, ioExecutor);
+    }
+
     // --- Scheduler de entrega ---
 
     public void startDeliveryScheduler() {
@@ -101,15 +139,7 @@ public class LetterManager {
                 Player recipient = Bukkit.getPlayer(letter.recipientUUID());
                 if (recipient == null || !recipient.isOnline()) return;
 
-                Letter delivered = letter.withDelivered(true);
-                UUID recipientId = letter.recipientUUID();
-                inboxCache.compute(recipientId, (k, cached) -> {
-                    List<Letter> letters = (cached != null && cached.expiresAt() > now)
-                            ? new CopyOnWriteArrayList<>(cached.letters())
-                            : new CopyOnWriteArrayList<>();
-                    letters.add(0, delivered);
-                    return new CachedInbox(letters, now + CACHE_TTL_MS);
-                });
+                addToCache(letter.recipientUUID(), letter.withDelivered(true));
                 notifyNewLetter(recipient, letter);
             });
         }
@@ -150,40 +180,39 @@ public class LetterManager {
 
     // --- Envio ---
 
-    public void sendLetter(Letter letter) {
-        CompletableFuture.runAsync(() -> {
-            storage.insertLetter(letter);
-            if (letter.deliverAt() <= System.currentTimeMillis()) {
-                if (!storage.tryMarkDelivered(letter.id())) return;
-                Player recipient = Bukkit.getPlayer(letter.recipientUUID());
-                if (recipient != null) {
-                    Letter delivered = letter.withDelivered(true);
-                    long now = System.currentTimeMillis();
-                    inboxCache.compute(letter.recipientUUID(), (k, cached) -> {
-                        List<Letter> letters = getCachedLetters(letter.recipientUUID(), now);
-                        letters.add(0, delivered);
-                        return new CachedInbox(letters, now + CACHE_TTL_MS);
-                    });
-                    Bukkit.getScheduler().runTask(plugin, () -> notifyNewLetter(recipient, letter));
-                }
+    /**
+     * Persists a direct letter. The returned future completes with {@code true} only after the
+     * row is committed — callers MUST NOT destroy the player's draft book until then, otherwise a
+     * failed INSERT (disk full, locked DB) silently loses the letter. All Bukkit access is marshalled
+     * back to the main thread.
+     */
+    public CompletableFuture<Boolean> sendLetter(Letter letter) {
+        return CompletableFuture.supplyAsync(() -> {
+            if (!storage.insertLetter(letter)) return false;
+            if (letter.deliverAt() <= System.currentTimeMillis()
+                    && letter.recipientUUID() != null
+                    && storage.tryMarkDelivered(letter.id())) {
+                Bukkit.getScheduler().runTask(plugin, () -> {
+                    Player recipient = Bukkit.getPlayer(letter.recipientUUID());
+                    if (recipient == null || !recipient.isOnline()) return;
+                    addToCache(letter.recipientUUID(), letter.withDelivered(true));
+                    notifyNewLetter(recipient, letter);
+                });
             }
+            return true;
         }, ioExecutor);
     }
 
-    public void sendBroadcast(Letter letter) {
-        CompletableFuture.runAsync(() -> {
-            storage.insertLetter(letter);
+    public CompletableFuture<Boolean> sendBroadcast(Letter letter) {
+        return CompletableFuture.supplyAsync(() -> {
+            if (!storage.insertLetter(letter)) return false;
             Bukkit.getScheduler().runTask(plugin, () -> {
-                long now = System.currentTimeMillis();
                 for (Player p : Bukkit.getOnlinePlayers()) {
-                    inboxCache.compute(p.getUniqueId(), (k, cached) -> {
-                        List<Letter> letters = getCachedLetters(p.getUniqueId(), now);
-                        letters.add(0, letter);
-                        return new CachedInbox(letters, now + CACHE_TTL_MS);
-                    });
+                    addToCache(p.getUniqueId(), letter);
                     notifyNewLetter(p, letter);
                 }
             });
+            return true;
         }, ioExecutor);
     }
 
@@ -250,11 +279,20 @@ public class LetterManager {
 
     public void runCleanup() {
         long now = System.currentTimeMillis();
-        long directTTL    = TimeUnit.DAYS.toMillis(plugin.getConfig().getLong("cleanup.delete-read-after-days", 30));
-        long broadcastTTL = TimeUnit.DAYS.toMillis(plugin.getConfig().getLong("cleanup.delete-broadcast-after-days", 7));
-        long auditTTL     = TimeUnit.DAYS.toMillis(plugin.getConfig().getLong("cleanup.delete-audit-after-days", 90));
-        CompletableFuture.runAsync(
-                () -> storage.cleanup(now - directTTL, now - broadcastTTL, now - auditTTL), ioExecutor);
+        // Clamp em tudo: getLong devolve 0 para valor invalido no YAML, e um TTL de 0 dias
+        // apagaria o banco inteiro na proxima limpeza.
+        long directTTL    = TimeUnit.DAYS.toMillis(clampDays(plugin.getConfig().getLong("cleanup.delete-read-after-days", 30), 30));
+        long broadcastTTL = TimeUnit.DAYS.toMillis(clampDays(plugin.getConfig().getLong("cleanup.broadcast-retention-days", 15), 15));
+        long auditTTL     = TimeUnit.DAYS.toMillis(clampDays(plugin.getConfig().getLong("cleanup.delete-audit-after-days", 90), 90));
+        long modImageTTL  = TimeUnit.DAYS.toMillis(clampDays(plugin.getConfig().getLong("cleanup.delete-moderation-image-after-days", 4), 4));
+        CompletableFuture.runAsync(() -> {
+            storage.cleanup(now - directTTL, now - broadcastTTL, now - auditTTL);
+            storage.cleanupModerationImages(now - modImageTTL);
+        }, ioExecutor);
+    }
+
+    private static long clampDays(long value, long fallback) {
+        return value <= 0 ? fallback : value;
     }
 
     public void submitIoTask(Runnable task) {

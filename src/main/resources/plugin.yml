@@ -1,5 +1,5 @@
 name: NemonicMail
-version: '1.1.0'
+version: '1.1.1'
 main: com.nemonicmail.NemonicMail
 api-version: '1.21'
 authors: [ NemonicRP ]
@@ -10,7 +10,7 @@ softdepend: [ LuckPerms, PlaceholderAPI ]
 commands:
   carta:
     description: Sistema de cartas NemonicMail
-    usage: /carta [escrever|caixa|todos|imagem|reload|ajuda]
+    usage: /carta [escrever|caixa|todos|imagem|admin|moderar|reload|ajuda]
     aliases: [ mail, correio ]
 
 permissions:
@@ -38,6 +38,10 @@ permissions:
     description: Fazer upload de imagem pelo navegador para anexar na carta
     default: false
 
+  nemonicmail.image.unlimited:
+    description: Ignorar o limite diario de imagens
+    default: false
+
   nemonicmail.admin:
     description: Acesso total ao sistema de cartas
     default: op
@@ -48,6 +52,7 @@ permissions:
       nemonicmail.bypass.cooldown: true
       nemonicmail.image.url: true
       nemonicmail.image.upload: true
+      nemonicmail.image.unlimited: true
       nemonicmail.reload: true
 
   nemonicmail.reload:

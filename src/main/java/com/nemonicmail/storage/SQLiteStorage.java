@@ -18,6 +18,9 @@ public class SQLiteStorage implements StorageProvider {
 
     private static final Type LIST_STRING_TYPE = new TypeToken<List<String>>() {}.getType();
 
+    /** Bump when the schema changes. Stored via PRAGMA user_version for future migrations. */
+    private static final int SCHEMA_VERSION = 3;
+
     private final File dataFolder;
     private final Logger logger;
     private final Gson gson = new Gson();
@@ -46,7 +49,8 @@ public class SQLiteStorage implements StorageProvider {
         }
 
         createTables();
-        logger.info("[NemonicMail] Banco de dados inicializado.");
+        applySchemaVersion();
+        logger.info("[NemonicMail] Banco de dados inicializado (schema v" + SCHEMA_VERSION + ").");
     }
 
     private void createTables() throws SQLException {
@@ -111,6 +115,63 @@ public class SQLiteStorage implements StorageProvider {
                     )""");
             s.execute("CREATE INDEX IF NOT EXISTS idx_audit_time ON audit_log(event_time DESC)");
             s.execute("CREATE INDEX IF NOT EXISTS idx_audit_type ON audit_log(event_type)");
+
+            // Partial index for the delivery scheduler scan (delivered = 0 AND deliver_at <= ?).
+            // Keeps the 15s pending-delivery sweep off a full table scan as letters grow.
+            s.execute("CREATE INDEX IF NOT EXISTS idx_pending ON letters(deliver_at) WHERE delivered = 0");
+
+            // Moderation image store — independent of the letters table (no FK / cascade).
+            // Holds a copy of every attached image tile + the REAL sender (even for anonymous
+            // letters) so staff can verify what was sent. Auto-purged after a short TTL
+            // (cleanup.delete-moderation-image-after-days, default 4) to bound disk usage.
+            s.execute("""
+                    CREATE TABLE IF NOT EXISTS moderation_images (
+                        letter_id   TEXT    NOT NULL,
+                        tile_index  INTEGER NOT NULL DEFAULT 0,
+                        map_id      INTEGER NOT NULL DEFAULT -1,
+                        sender_uuid TEXT,
+                        sender_name TEXT,
+                        recipient   TEXT,
+                        letter_type TEXT,
+                        pixels      BLOB    NOT NULL,
+                        grid_w      INTEGER NOT NULL DEFAULT 1,
+                        grid_h      INTEGER NOT NULL DEFAULT 1,
+                        created_at  INTEGER NOT NULL,
+                        PRIMARY KEY (letter_id, tile_index)
+                    )""");
+            s.execute("CREATE INDEX IF NOT EXISTS idx_mod_created ON moderation_images(created_at)");
+        }
+    }
+
+    /** Records the current schema version and runs pending migrations. */
+    private void applySchemaVersion() throws SQLException {
+        int current;
+        try (Statement s = connection.createStatement();
+             ResultSet rs = s.executeQuery("PRAGMA user_version")) {
+            current = rs.next() ? rs.getInt(1) : 0;
+        }
+
+        if (current < 3) {
+            // Reparo v3: versões anteriores gravavam expires_at curto/corrompido (config
+            // inválida lida como 0 fazia a carta "expirar" na hora — cartas sumindo em horas).
+            // Estende toda carta viva para pelo menos sent_at + 15 dias.
+            long fifteenDays = 15L * 24 * 60 * 60 * 1000;
+            try (PreparedStatement ps = connection.prepareStatement("""
+                    UPDATE letters
+                    SET expires_at = sent_at + ?
+                    WHERE expires_at > 1 AND expires_at < sent_at + ?""")) {
+                ps.setLong(1, fifteenDays);
+                ps.setLong(2, fifteenDays);
+                int fixed = ps.executeUpdate();
+                if (fixed > 0)
+                    logger.info("[NemonicMail] Migracao v3: retencao de " + fixed
+                            + " carta(s) existente(s) estendida para 15 dias.");
+            }
+            // expires_at = 1 (revogadas pelo admin) é preservado de propósito.
+        }
+
+        try (Statement s = connection.createStatement()) {
+            s.execute("PRAGMA user_version = " + SCHEMA_VERSION);
         }
     }
 
@@ -119,7 +180,7 @@ public class SQLiteStorage implements StorageProvider {
     // -----------------------------------------------------------------------
 
     @Override
-    public synchronized void insertLetter(Letter letter) {
+    public synchronized boolean insertLetter(Letter letter) {
         String sql = """
                 INSERT INTO letters(id, sender_uuid, sender_name, recipient_uuid, recipient_name,
                                     pages, sent_at, deliver_at, read, delivered, type, priority, expires_at)
@@ -138,9 +199,10 @@ public class SQLiteStorage implements StorageProvider {
             ps.setString(11, letter.type().name());
             ps.setString(12, letter.priority().name());
             ps.setLong(13, letter.expiresAt());
-            ps.executeUpdate();
+            return ps.executeUpdate() > 0;
         } catch (SQLException e) {
             logger.severe("[NemonicMail] Erro ao inserir carta: " + e.getMessage());
+            return false;
         }
     }
 
@@ -490,6 +552,97 @@ public class SQLiteStorage implements StorageProvider {
             logger.severe("[NemonicMail] Erro ao carregar tiles: " + e.getMessage());
         }
         return list;
+    }
+
+    // -----------------------------------------------------------------------
+    // Moderation image store (independent 4-day retention)
+    // -----------------------------------------------------------------------
+
+    /** Saves a moderation copy of every tile of an attached image, keyed by the REAL sender. */
+    public synchronized void insertModerationImageBatch(UUID letterId, int[] mapIds, byte[][] tilesData,
+                                                        int gridW, int gridH, String senderUuid,
+                                                        String senderName, String recipient, String letterType) {
+        String sql = """
+                INSERT OR REPLACE INTO moderation_images
+                    (letter_id, tile_index, map_id, sender_uuid, sender_name, recipient,
+                     letter_type, pixels, grid_w, grid_h, created_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)""";
+        try {
+            connection.setAutoCommit(false);
+            try (PreparedStatement ps = connection.prepareStatement(sql)) {
+                long now = System.currentTimeMillis();
+                for (int i = 0; i < mapIds.length; i++) {
+                    ps.setString(1, letterId.toString());
+                    ps.setInt(2, i);
+                    ps.setInt(3, mapIds[i]);
+                    ps.setString(4, senderUuid);
+                    ps.setString(5, senderName);
+                    ps.setString(6, recipient);
+                    ps.setString(7, letterType);
+                    ps.setBytes(8, tilesData[i]);
+                    ps.setInt(9, gridW);
+                    ps.setInt(10, gridH);
+                    ps.setLong(11, now);
+                    ps.addBatch();
+                }
+                ps.executeBatch();
+            }
+            connection.commit();
+        } catch (SQLException e) {
+            try { connection.rollback(); } catch (SQLException ignored) {}
+            logger.severe("[NemonicMail] Erro ao salvar imagem de moderacao: " + e.getMessage());
+        } finally {
+            try { connection.setAutoCommit(true); } catch (SQLException ignored) {}
+        }
+    }
+
+    public synchronized List<MapImageEntry> getModerationImages(UUID letterId) {
+        String sql = """
+                SELECT tile_index, map_id, pixels, grid_w, grid_h
+                FROM moderation_images
+                WHERE letter_id = ?
+                ORDER BY tile_index""";
+        List<MapImageEntry> list = new ArrayList<>();
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, letterId.toString());
+            ResultSet rs = ps.executeQuery();
+            while (rs.next()) {
+                list.add(new MapImageEntry(
+                        letterId,
+                        rs.getInt("tile_index"),
+                        rs.getInt("map_id"),
+                        rs.getBytes("pixels"),
+                        rs.getInt("grid_w"),
+                        rs.getInt("grid_h")));
+            }
+        } catch (SQLException e) {
+            logger.severe("[NemonicMail] Erro ao buscar imagem de moderacao: " + e.getMessage());
+        }
+        return list;
+    }
+
+    /** True if any moderation tile exists for this letter (cheap presence check for admin views). */
+    public synchronized boolean hasModerationImage(UUID letterId) {
+        try (PreparedStatement ps = connection.prepareStatement(
+                "SELECT 1 FROM moderation_images WHERE letter_id = ? LIMIT 1")) {
+            ps.setString(1, letterId.toString());
+            return ps.executeQuery().next();
+        } catch (SQLException e) {
+            return false;
+        }
+    }
+
+    @Override
+    public synchronized void cleanupModerationImages(long olderThan) {
+        try (PreparedStatement ps = connection.prepareStatement(
+                "DELETE FROM moderation_images WHERE created_at < ?")) {
+            ps.setLong(1, olderThan);
+            int removed = ps.executeUpdate();
+            if (removed > 0)
+                logger.info("[NemonicMail] " + removed + " imagem(ns) de moderacao expirada(s) removida(s).");
+        } catch (SQLException e) {
+            logger.warning("[NemonicMail] Erro ao limpar imagens de moderacao: " + e.getMessage());
+        }
     }
 
     // -----------------------------------------------------------------------

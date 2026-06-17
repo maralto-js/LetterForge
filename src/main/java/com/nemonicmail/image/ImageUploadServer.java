@@ -95,7 +95,7 @@ public class ImageUploadServer {
     }
 
     public void start() throws IOException {
-        String bindAddr = plugin.getConfig().getString("image-upload.bind-address", "0.0.0.0");
+        String bindAddr = plugin.getConfig().getString("image-upload.bind-address", "127.0.0.1");
         server = HttpServer.create(new InetSocketAddress(bindAddr, port), 0);
         server.createContext("/upload", this::handle);
         httpExecutor = Executors.newFixedThreadPool(4, r -> {
