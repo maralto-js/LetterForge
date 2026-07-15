@@ -2,7 +2,10 @@
 
 <div align="center">
 
-Sistema de cartas imersivo para roleplay em Minecraft Java 1.21+
+[![English](https://img.shields.io/badge/lang-English-2ea44f?style=for-the-badge)](README.md)
+[![Português](https://img.shields.io/badge/lang-Portugu%C3%AAs-6e7681?style=for-the-badge)](README.pt-BR.md)
+
+Immersive letter system for roleplay on Minecraft Java 1.21+
 
 ![Java](https://img.shields.io/badge/Java-ED8B00?style=for-the-badge&logo=openjdk&logoColor=white)
 ![Minecraft](https://img.shields.io/badge/Minecraft-62B47A?style=for-the-badge&logo=minecraft&logoColor=white)
@@ -12,29 +15,33 @@ Sistema de cartas imersivo para roleplay em Minecraft Java 1.21+
 
 ---
 
-## 📬 Descrição
+## 📬 What is it?
 
-O sistema de comunicação que faltava em Minecraft. Cartas que conectam players, histórias dentro do jogo.
+The communication system Minecraft was missing. Letters that connect players and build stories
+inside the game.
 
 ---
 
 ## ✨ Features
 
-- 📬 **Escrever & Receber:** Interface completa dentro do jogo
-- 🖼️ **Suporte a Imagens:** URL ou upload direto
-- 🔐 **Permissões:** Sistema granular (IMPORTANTE, OFICIAL, etc)
-- 💾 **Persistência:** Dados salvos entre reinicializações
-- 🎨 **Customizável:** Interface inteira via YAML
+- 📬 **Write & Receive:** full in-game interface
+- 🖼️ **Image support:** URL or direct upload
+- 🔐 **Permissions:** granular system (IMPORTANT, OFFICIAL, etc)
+- 💾 **Persistence:** data saved across restarts
+- 🎨 **Customizable:** entire interface via YAML
 
 ---
 
-## 🛠️ Instalação
+## 🛠️ Installation
 
-1. Baixe o `.jar`
-2. Coloque em `plugins/`
-3. Reinicie: `/reload confirm`
-4. Edite `plugins/NemonicMail/config.yml`
+1. Download the `.jar` from [Releases](../../releases)
+2. Drop it into `plugins/`
+3. Restart the server
+4. Edit `plugins/NemonicMail/config.yml`
 
 ---
-## 📄 Licença
-Este plugin é um software proprietário. É proibida a redistribuição, cópia, modificação ou uso sem autorização explícita do autor. A licença é concedida individualmente por servidor.
+
+## 📄 License
+
+[MIT](LICENSE) — free to use, modify and redistribute, including on commercial servers.
+Attribution is appreciated but not required.
