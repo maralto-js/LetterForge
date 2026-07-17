@@ -1,4 +1,4 @@
-# NemonicMail
+# LetterForge
 
 <div align="center">
 
@@ -37,7 +37,7 @@ inside the game.
 1. Download the `.jar` from [Releases](../../releases)
 2. Drop it into `plugins/`
 3. Restart the server
-4. Edit `plugins/NemonicMail/config.yml`
+4. Edit `plugins/LetterForge/config.yml`
 
 ---
 

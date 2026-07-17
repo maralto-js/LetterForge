@@ -1,4 +1,4 @@
-# NemonicMail - Correções Implementadas
+# LetterForge - Correções Implementadas
 
 ## 📋 Resumo Executivo
 Três correções críticas foram implementadas para resolver bugs de concorrência, memory leaks e validação de dados.
@@ -165,7 +165,7 @@ Se houver erros de indexação IDE, fazer rebuild:
 ### Teste Local
 ```bash
 mvn package
-cp target/NemonicMail.jar /path/to/test-server/plugins/
+cp target/LetterForge.jar /path/to/test-server/plugins/
 # Reiniciar servidor
 ```
 

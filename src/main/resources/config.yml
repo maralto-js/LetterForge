@@ -1,4 +1,4 @@
-# NemonicMail - Configuracao
+# LetterForge - Configuracao
 
 limits:
   # Maximo de cartas na caixa de cada jogador
@@ -27,7 +27,7 @@ image-cooldowns:
 
 image-limits:
   # Maximo de imagens por jogador por dia (reset a meia-noite). 0 = sem limite.
-  # Isento: nemonicmail.image.unlimited e nemonicmail.admin
+  # Isento: letterforge.image.unlimited e letterforge.admin
   daily: 3
 
 delivery:
@@ -47,6 +47,8 @@ cleanup:
   # ---------------------------------------------------------------
   letter-retention-days: 15
   broadcast-retention-days: 15
+  # Por quantos dias cada edicao do jornal fica no arquivo (/carta jornal). 0 = usa 60.
+  jornal-retention-days: 60
   # Deletar cartas LIDAS antes do fim da retencao? Este valor so age
   # se for MENOR que a retencao (padrao 30 = nao age).
   delete-read-after-days: 30

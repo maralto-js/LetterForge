@@ -1,4 +1,4 @@
-# NSFW Filter Implementation — NemonicMail
+# NSFW Filter Implementation — LetterForge
 
 ## ✅ Implementação Realizada
 
@@ -14,7 +14,7 @@
 
 ### 2. **pom.xml** ✓
 - Adicionada dependência: `com.microsoft.onnxruntime:onnxruntime:1.19.2`
-- Adicionada relocation: `ai.onnxruntime → com.nemonicmail.libs.onnx`
+- Adicionada relocation: `ai.onnxruntime → com.letterforge.libs.onnx`
 
 ### 3. **config.yml** ✓
 ```yaml
@@ -32,7 +32,7 @@ filter:
   nsfw-blocked-url: '&cA imagem do link foi bloqueada por conteudo inadequado.'
 ```
 
-### 5. **NemonicMail.java** ✓
+### 5. **LetterForge.java** ✓
 - Adicionado `import NsfwFilter`
 - Inicialização em `onEnable()`: `NsfwFilter.init(getDataFolder(), getLogger())`
 - Limpeza em `onDisable()`: `NsfwFilter.close()`
@@ -52,7 +52,7 @@ Baixe o modelo Falconsai/nsfw_image_detection do Hugging Face:
 
 Ou através do terminal:
 ```bash
-cd NemonicMail/src/main/resources
+cd LetterForge/src/main/resources
 wget https://huggingface.co/Falconsai/nsfw_image_detection/resolve/main/model.onnx -O nsfw_model.onnx
 ```
 
@@ -178,14 +178,14 @@ mvn clean package
 
 ### Arquivo Gerado
 ```
-target/NemonicMail-1.0.0.jar
+target/LetterForge-1.0.0.jar
 ```
 
 ### Deployment
 ```bash
-cp target/NemonicMail-1.0.0.jar /path/to/server/plugins/
-cp nsfw_model.onnx /path/to/server/plugins/NemonicMail/
-# Ou coloque o modelo na pasta plugins/NemonicMail/ manualmente
+cp target/LetterForge-1.0.0.jar /path/to/server/plugins/
+cp nsfw_model.onnx /path/to/server/plugins/LetterForge/
+# Ou coloque o modelo na pasta plugins/LetterForge/ manualmente
 ```
 
 ---
@@ -240,7 +240,7 @@ nsfw-filter:
 ## Notas Importantes
 
 1. **Modelo não incluído no JAR**: O arquivo `nsfw_model.onnx` deve ser baixado separadamente e colocado na pasta do plugin
-2. **Compatibilidade**: Requer Java 21 (como todo o NemonicMail)
+2. **Compatibilidade**: Requer Java 21 (como todo o LetterForge)
 3. **Threshold recomendado**: 0.75 para melhor balanço entre detecção e falsos positivos
 4. **Fallback**: Se NSFW filter falhar, HSV skin-tone filter é usada como fallback
 5. **Performance**: Não há impacto significativo já que inferência roda em thread async

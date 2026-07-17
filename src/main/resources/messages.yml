@@ -1,5 +1,5 @@
 # =========================================================
-#  NemonicMail — messages.yml
+#  LetterForge — messages.yml
 #  Suporta codigos de cor legado (&) e placeholders {variavel}
 #  Recarregue com: /carta reload
 # =========================================================
@@ -12,6 +12,7 @@ tags:
   official:  '&6[OFICIAL] '
   broadcast: '&e[AVISO] '
   anonymous: '&7[ANONIMO] '
+  jornal:    '&b[JORNAL] '
 
 # --- Geral ---
 general:
@@ -41,6 +42,17 @@ broadcast:
   already-has-book: '&eVoce ja tem uma carta em maos!'
   book-ready:       '&eLivro de anuncio preparado! Escreva e assine para enviar a todos.'
   sent:             '&aAnuncio enviado para todos os jogadores!'
+
+# --- /carta jornal ---
+jornal:
+  no-permission:    '&cVoce nao tem permissao para publicar o jornal.'
+  already-has-book: '&eVoce ja tem uma carta em maos!'
+  book-ready:       '&bEdicao do jornal preparada! Escreva (sem limite de paginas), de um titulo e assine para publicar a todos.'
+  book-ready-img:   '&bEdicao do jornal preparada! &6[imagem anexada] &bEscreva, de um titulo e assine para publicar.'
+  published:        '&bNova edicao do jornal publicada para todos!'
+  empty:            '&7Nenhuma edicao do jornal publicada ainda.'
+  not-found:        '&cEdicao &e#{edition} &cnao encontrada (ou ja expirou).'
+  ler-usage:        '&eUso: /carta jornal ler <numero da edicao>'
 
 # --- /carta imagem ---
 image:

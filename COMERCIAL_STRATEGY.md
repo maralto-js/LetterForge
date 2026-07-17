@@ -1,16 +1,16 @@
-# NemonicMail — Estratégia de Comercialização
+# LetterForge — Estratégia de Comercialização
 
 ## 📦 Modelo de Distribuição: Addon Separado
 
 ```
-Produto 1: NemonicMail-Core (FREE ou PAID)
+Produto 1: LetterForge-Core (FREE ou PAID)
 └─ Plugin base completo
    ├─ Sistema de cartas
    ├─ Imagens em mapas
    ├─ Upload HTTP
    └─ Suporte a NSFW (com fallback)
 
-Produto 2: NemonicMail-NSFW-Model (PREMIUM ADD-ON)
+Produto 2: LetterForge-NSFW-Model (PREMIUM ADD-ON)
 └─ Modelo ONNX Falconsai (~50MB)
    ├─ Integração automática
    ├─ Ativa detecção avançada
@@ -21,13 +21,13 @@ Produto 2: NemonicMail-NSFW-Model (PREMIUM ADD-ON)
 
 ## 🏗️ Arquitetura Técnica
 
-### **NemonicMail-Core**
+### **LetterForge-Core**
 - Funciona 100% sem modelo
 - NSFW Filter desabilitado por padrão
 - Se addon não existir: fallback para HSV skin-tone
 - Admin vê aviso: "NSFW Model addon não encontrado"
 
-### **NemonicMail-NSFW-Model** (Addon)
+### **LetterForge-NSFW-Model** (Addon)
 - Arquivo `nsfw_model.onnx` compacto
 - Auto-registra em `NsfwFilter`
 - Ativa automaticamente se core carregado
@@ -39,27 +39,27 @@ Produto 2: NemonicMail-NSFW-Model (PREMIUM ADD-ON)
 
 ### Estrutura Maven
 
-**NemonicMail-Core** (pom.xml):
+**LetterForge-Core** (pom.xml):
 ```xml
 <!-- REMOVER: dependência onnxruntime -->
 <!-- NsfwFilter fica como "optional" -->
 <!-- Se addon existir, usa; se não, usa fallback -->
 ```
 
-**NemonicMail-NSFW-Model** (novo pom.xml):
+**LetterForge-NSFW-Model** (novo pom.xml):
 ```xml
 <project>
     <modelVersion>4.0.0</modelVersion>
-    <groupId>com.nemonicmail</groupId>
-    <artifactId>nemonicmail-nsfw-model</artifactId>
+    <groupId>com.letterforge</groupId>
+    <artifactId>letterforge-nsfw-model</artifactId>
     <version>1.0.0</version>
     <packaging>jar</packaging>
 
     <dependencies>
         <!-- Dependência do core para hooks -->
         <dependency>
-            <groupId>com.nemonicmail</groupId>
-            <artifactId>NemonicMail</artifactId>
+            <groupId>com.letterforge</groupId>
+            <artifactId>LetterForge</artifactId>
             <version>1.0.0</version>
             <scope>provided</scope>
         </dependency>
@@ -79,7 +79,7 @@ Produto 2: NemonicMail-NSFW-Model (PREMIUM ADD-ON)
 
 ## 📝 Código: Core sem ONNX Dependency
 
-### **NemonicMail.java** — Removido NsfwFilter init obrigatório
+### **LetterForge.java** — Removido NsfwFilter init obrigatório
 
 ```java
 @Override
@@ -88,11 +88,11 @@ public void onEnable() {
 
     // NSFW Model é opcional — só ativa se addon carregado
     if (isNsfwModelAvailable()) {
-        getLogger().info("[NemonicMail] NSFW Model addon detectado — ativando...");
+        getLogger().info("[LetterForge] NSFW Model addon detectado — ativando...");
         // Addon já se registrou, NsfwFilter está pronto
     } else {
-        getLogger().info("[NemonicMail] NSFW Model addon não instalado.");
-        getLogger().info("[NemonicMail] Para ativar detecção avançada, adquira o addon.");
+        getLogger().info("[LetterForge] NSFW Model addon não instalado.");
+        getLogger().info("[LetterForge] Para ativar detecção avançada, adquira o addon.");
     }
 
     // ... resto do código ...
@@ -100,7 +100,7 @@ public void onEnable() {
 
 private boolean isNsfwModelAvailable() {
     try {
-        Class.forName("com.nemonicmail.image.NsfwModelAddon");
+        Class.forName("com.letterforge.image.NsfwModelAddon");
         return true;
     } catch (ClassNotFoundException e) {
         return false;
@@ -111,7 +111,7 @@ private boolean isNsfwModelAvailable() {
 ### **NsfwModelAddon.java** — Novo arquivo no addon
 
 ```java
-package com.nemonicmail.image;
+package com.letterforge.image;
 
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -123,7 +123,7 @@ public class NsfwModelAddon extends JavaPlugin {
         try {
             NsfwFilter.init(getDataFolder(), getLogger());
             getLogger().info("[NSFW Model] ✓ Modelo carregado com sucesso!");
-            getLogger().info("[NSFW Model] Detecção NSFW ativada para NemonicMail.");
+            getLogger().info("[NSFW Model] Detecção NSFW ativada para LetterForge.");
         } catch (Exception e) {
             getLogger().severe("[NSFW Model] ✗ Falha ao carregar: " + e.getMessage());
             getServer().getPluginManager().disablePlugin(this);
@@ -141,12 +141,12 @@ public class NsfwModelAddon extends JavaPlugin {
 ### **plugin.yml** — Addon
 
 ```yaml
-name: NemonicMail-NSFW-Model
+name: LetterForge-NSFW-Model
 version: 1.0.0
-main: com.nemonicmail.image.NsfwModelAddon
-description: Modelo ONNX de detecção NSFW para NemonicMail
-authors: [NemonicRP]
-depend: [NemonicMail]
+main: com.letterforge.image.NsfwModelAddon
+description: Modelo ONNX de detecção NSFW para LetterForge
+authors: [maraltinho]
+depend: [LetterForge]
 api-version: '1.21'
 ```
 
@@ -157,32 +157,32 @@ api-version: '1.21'
 ### Build do Core (sem ONNX)
 
 ```bash
-cd NemonicMail
+cd LetterForge
 mvn clean package
-# Resultado: target/NemonicMail-1.0.0.jar (~5MB)
+# Resultado: target/LetterForge-1.0.0.jar (~5MB)
 ```
 
 ### Build do Addon (com modelo)
 
 ```bash
-mkdir NemonicMail-NSFW-Model
-cd NemonicMail-NSFW-Model
+mkdir LetterForge-NSFW-Model
+cd LetterForge-NSFW-Model
 
 # Copiar pom.xml (addon)
 # Copiar src/ com NsfwFilter.java e NsfwModelAddon.java
 # Copiar src/main/resources/nsfw_model.onnx
 
 mvn clean package
-# Resultado: target/nemonicmail-nsfw-model-1.0.0.jar (~55MB)
+# Resultado: target/letterforge-nsfw-model-1.0.0.jar (~55MB)
 ```
 
 ---
 
 ## 🎯 Pacotes de Venda
 
-### **Pacote 1: NemonicMail Free**
+### **Pacote 1: LetterForge Free**
 ```
-- NemonicMail-1.0.0.jar (Core)
+- LetterForge-1.0.0.jar (Core)
 - Recursos:
   ✓ Sistema de cartas completo
   ✓ Imagens em mapas
@@ -192,10 +192,10 @@ mvn clean package
 - Preço: Gratuito
 ```
 
-### **Pacote 2: NemonicMail Premium**
+### **Pacote 2: LetterForge Premium**
 ```
-- NemonicMail-1.0.0.jar (Core)
-- nemonicmail-nsfw-model-1.0.0.jar (Addon)
+- LetterForge-1.0.0.jar (Core)
+- letterforge-nsfw-model-1.0.0.jar (Addon)
 - Recursos:
   ✓ Sistema completo
   ✓ Detecção NSFW via ONNX (acurácia 95%+)
@@ -219,8 +219,8 @@ mvn clean package
 
 **Opção 1: Simple — Rename Check**
 ```java
-// Em NemonicMail.onEnable():
-if (!getFile().getName().equals("NemonicMail-1.0.0.jar")) {
+// Em LetterForge.onEnable():
+if (!getFile().getName().equals("LetterForge-1.0.0.jar")) {
     getLogger().warning("⚠️ JAR renamed — licença inválida!");
     getServer().getPluginManager().disablePlugin(this);
 }
@@ -279,8 +279,8 @@ if (!getFile().getName().equals("NemonicMail-1.0.0.jar")) {
 
 1. **Versionamento**: Core e Addon em sincronização
    ```
-   NemonicMail 1.0.0 ← compatível com →  NSFW-Model 1.0.0
-   NemonicMail 1.1.0 ← compatível com →  NSFW-Model 1.1.0
+   LetterForge 1.0.0 ← compatível com →  NSFW-Model 1.0.0
+   LetterForge 1.1.0 ← compatível com →  NSFW-Model 1.1.0
    ```
 
 2. **Documentação**: Deixar claro o que é free vs premium
@@ -292,7 +292,7 @@ if (!getFile().getName().equals("NemonicMail-1.0.0.jar")) {
 
 3. **Support**: Ofereça suporte técnico para paying customers
    ```
-   Discord: suporte@nemonicmail.com
+   Discord: suporte@letterforge.com
    Ticket System: Pago vs Grátis
    ```
 
@@ -309,7 +309,7 @@ if (!getFile().getName().equals("NemonicMail-1.0.0.jar")) {
 
 - [ ] Remover `onnxruntime` dependency do Core pom.xml
 - [ ] Modificar `NsfwFilter.init()` para ser chamado pelo Addon
-- [ ] Criar projeto separado `NemonicMail-NSFW-Model`
+- [ ] Criar projeto separado `LetterForge-NSFW-Model`
 - [ ] Criar `NsfwModelAddon.java` em novo projeto
 - [ ] Criar `plugin.yml` do addon
 - [ ] Build ambos JARs

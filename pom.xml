@@ -4,9 +4,9 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>com.nemonicmail</groupId>
-    <artifactId>NemonicMail</artifactId>
-    <version>1.1.1</version>
+    <groupId>com.letterforge</groupId>
+    <artifactId>LetterForge</artifactId>
+    <version>1.2.0</version>
     <packaging>jar</packaging>
 
     <properties>
@@ -33,7 +33,7 @@
     </repositories>
 
     <dependencies>
-        <!-- Paper API 1.21.10 — alvo de produção do NemonicRP -->
+        <!-- Paper API 1.21.10 — alvo de produção (MC 1.21.10) -->
         <dependency>
             <groupId>io.papermc.paper</groupId>
             <artifactId>paper-api</artifactId>
@@ -66,13 +66,13 @@
         </dependency>
 
         <!-- ONNX Runtime REMOVIDO do core (plugin leve):
-             a detecção NSFW é fornecida pelo addon premium NemonicMail-NSFW-Model,
+             a detecção NSFW é fornecida pelo addon premium LetterForge-NSFW-Model,
              que carrega o ONNX em seu próprio classloader e registra um NsfwScorer via
              NsfwFilter.register(). O core depende apenas de SQLite + Gson (do Paper). -->
     </dependencies>
 
     <build>
-        <finalName>NemonicMail-${project.version}</finalName>
+        <finalName>LetterForge-${project.version}</finalName>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -96,7 +96,7 @@
                             <relocations>
                                 <relocation>
                                     <pattern>org.sqlite</pattern>
-                                    <shadedPattern>com.nemonicmail.libs.sqlite</shadedPattern>
+                                    <shadedPattern>com.letterforge.libs.sqlite</shadedPattern>
                                 </relocation>
                             </relocations>
                             <filters>
